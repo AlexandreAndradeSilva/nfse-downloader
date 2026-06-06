@@ -106,9 +106,22 @@ export function buildDanfseHtml(d: DanfseData): string {
 <!-- CABEÇALHO -->
 <table style="margin-bottom:1mm">
   <tr>
-    <td style="width:15%; border:1px solid #555; text-align:center; padding:4px">
-      <div class="hdr-logo">NFS<span style="color:#e53935">e</span></div>
-      <div style="font-size:6pt; color:#555">Nota Fiscal de<br>Serviço Eletrônica</div>
+    <td style="width:18%; border:1px solid #555; text-align:center; padding:6px 4px">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 80" style="width:100%;max-width:110px">
+        <!-- N com bandeira -->
+        <text x="2" y="62" font-family="Arial Black,Arial" font-weight="900" font-size="62" fill="#3a7d3a">N</text>
+        <polygon points="14,8 28,8 28,28" fill="#009c3b" opacity="0.7"/>
+        <polygon points="14,8 28,8 14,28" fill="#ffdf00" opacity="0.8"/>
+        <circle cx="21" cy="18" r="5" fill="#002776" opacity="0.6"/>
+        <!-- F -->
+        <text x="48" y="62" font-family="Arial Black,Arial" font-weight="900" font-size="62" fill="#3a7d3a">F</text>
+        <!-- S -->
+        <text x="88" y="62" font-family="Arial Black,Arial" font-weight="900" font-size="62" fill="#3a7d3a">S</text>
+        <!-- e -->
+        <text x="135" y="62" font-family="Arial Black,Arial" font-weight="900" font-size="55" fill="#1a2e6e">e</text>
+        <!-- subtítulo -->
+        <text x="110" y="76" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Nota Fiscal de Serviço Eletrônica</text>
+      </svg>
     </td>
     <td style="border:1px solid #555" class="hdr-center">
       <div class="hdr-title">DANFSe v1.0</div>

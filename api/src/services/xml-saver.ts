@@ -51,7 +51,9 @@ export async function decodeAndSave(
   const competencia = extractCompetencia(infNFSe);
   const dataEmissao = extractDataEmissao(dps, infNFSe);
 
-  if (dateRange && dataEmissao) {
+  if (dateRange) {
+    // Se filtro ativo mas não conseguimos extrair a data → pula (filtro estrito)
+    if (!dataEmissao) return null;
     if (dateRange.dataInicio && dataEmissao < dateRange.dataInicio) return null;
     if (dateRange.dataFim && dataEmissao > dateRange.dataFim) return null;
   }
@@ -88,10 +90,18 @@ export async function decodeAndSave(
 }
 
 function extractDataEmissao(dps: Record<string, unknown>, infNFSe: Record<string, unknown>): Date | null {
-  const raw = String(dps?.dhEmi ?? infNFSe?.dhProc ?? '');
-  if (!raw) return null;
-  const d = new Date(raw);
-  return isNaN(d.getTime()) ? null : d;
+  // Tenta dhEmi (data/hora da emissão), depois dhProc, depois dCompet (fallback)
+  const candidates = [
+    dps?.dhEmi,
+    infNFSe?.dhProc,
+    dps?.dCompet,     // formato YYYY-MM-DD — mais simples, sem fuso horário
+  ];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    const d = new Date(String(raw));
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
 }
 
 function extractCompetencia(infNFSe: Record<string, unknown>): string {
