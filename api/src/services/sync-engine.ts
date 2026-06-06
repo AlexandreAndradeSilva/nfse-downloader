@@ -1,9 +1,15 @@
 import type { Company, AdnDistribuicaoResponse } from '../types.js';
-import { decodeAndSave } from './xml-saver.js';
+import { decodeAndSave, type DateRange } from './xml-saver.js';
+
+export interface SyncOptions {
+  dateRange?: DateRange;
+  gerarPdf: boolean;
+}
 
 export interface SyncResult {
   prestados: number;
   tomados: number;
+  pulados: number;
   errors: number;
   lastNsu: number;
 }
@@ -14,11 +20,13 @@ type LogFn = (message: string) => void;
 export async function runSync(
   company: Company,
   fetchFn: FetchFn,
-  onProgress: LogFn
+  onProgress: LogFn,
+  options: SyncOptions = { gerarPdf: false }
 ): Promise<SyncResult> {
   let currentNsu = company.lastNsu + 1;
   let prestados = 0;
   let tomados = 0;
+  let pulados = 0;
   let errors = 0;
   let consecutiveErrors = 0;
   const MAX_CONSECUTIVE_ERRORS = 3;
@@ -40,9 +48,7 @@ export async function runSync(
       continue;
     }
 
-    if (response.StatusProcessamento === 'NENHUM_DOCUMENTO_LOCALIZADO') {
-      break;
-    }
+    if (response.StatusProcessamento === 'NENHUM_DOCUMENTO_LOCALIZADO') break;
 
     if (response.StatusProcessamento === 'REJEICAO') {
       const msg = response.Erros?.map(e => e.Descricao).join(', ') ?? 'Rejeição sem detalhes';
@@ -59,11 +65,19 @@ export async function runSync(
           nsu,
           company.cnpj,
           company.outputFolder,
-          company.nome
+          company.nome,
+          options.dateRange,
+          options.gerarPdf
         );
-        if (saved.tipo === 'prestados') prestados++;
-        else tomados++;
-        onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo`);
+        if (saved === null) {
+          pulados++;
+          onProgress(`NSU ${nsu} → fora do período, pulado`);
+        } else {
+          if (saved.tipo === 'prestados') prestados++;
+          else tomados++;
+          const pdfNote = options.gerarPdf ? ' + PDF' : '';
+          onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo${pdfNote}`);
+        }
         if (nsu >= currentNsu) currentNsu = nsu + 1;
       } catch (err) {
         errors++;
@@ -73,5 +87,5 @@ export async function runSync(
     }
   }
 
-  return { prestados, tomados, errors, lastNsu: currentNsu - 1 };
+  return { prestados, tomados, pulados, errors, lastNsu: currentNsu - 1 };
 }
