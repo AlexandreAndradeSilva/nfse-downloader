@@ -11,7 +11,8 @@
     "cors": "^2.8.5",
     "express": "^5.0.1",
     "fast-xml-parser": "^4.4.1",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "puppeteer": "^25.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
