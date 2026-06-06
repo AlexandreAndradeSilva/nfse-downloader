@@ -52,10 +52,10 @@ export async function runSync(
 
     const lote = response.LoteDFe ?? [];
     for (const item of lote) {
-      const nsu = parseInt(item.NsuDFe, 10);
+      const nsu = item.NSU;
       try {
         const saved = await decodeAndSave(
-          item.XmlBase64GZip,
+          item.ArquivoXml,
           nsu,
           company.cnpj,
           company.outputFolder,
