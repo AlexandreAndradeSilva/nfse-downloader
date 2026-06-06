@@ -1,6 +1,22 @@
 import puppeteer from 'puppeteer';
 import { XMLParser } from 'fast-xml-parser';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { buildDanfseHtml, type DanfseData } from './danfse-template.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOGO_B64_PATH = join(__dirname, '../assets/nfse-logo.b64');
+
+function loadLogoDataUrl(): string | undefined {
+  if (existsSync(LOGO_B64_PATH)) {
+    const b64 = readFileSync(LOGO_B64_PATH, 'ascii').trim();
+    return `data:image/png;base64,${b64}`;
+  }
+  return undefined;
+}
+
+const LOGO_DATA_URL = loadLogoDataUrl();
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -94,7 +110,7 @@ function extractDanfseData(xmlStr: string): DanfseData {
 
 export async function generateDanfse(xmlStr: string): Promise<Buffer> {
   const data = extractDanfseData(xmlStr);
-  const html = buildDanfseHtml(data);
+  const html = buildDanfseHtml(data, LOGO_DATA_URL);
 
   const browser = await puppeteer.launch({
     headless: true,
