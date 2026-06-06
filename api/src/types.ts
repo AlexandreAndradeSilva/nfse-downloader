@@ -14,8 +14,12 @@ export interface Config {
   companies: Company[];
 }
 
+// URLs confirmadas em 2026-06-06 via gov.br/nfse:
+// Produção:          https://adn.nfse.gov.br/adn
+// Produção Restrita: https://adn.producaorestrita.nfse.gov.br/adn
+// Endpoint: GET {baseUrl}/DFe/{NSU}?cnpjConsulta={cnpj}&lote=true
+// ATENÇÃO: nomes dos campos NsuDFe e XmlBase64GZip a confirmar contra resposta real
 export interface AdnNsuItem {
-  // ATENÇÃO: nomes de campos a confirmar contra resposta real da API ADN
   NsuDFe: string;
   XmlBase64GZip: string;
 }
