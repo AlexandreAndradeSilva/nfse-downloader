@@ -1,6 +1,8 @@
 import type { Company, SyncProgress } from '../types';
+import type { SyncOptions } from '../components/SyncModal';
 
 export type { Company };
+export type { SyncOptions };
 
 export async function listCompanies(): Promise<Company[]> {
   const res = await fetch('/api/companies');
@@ -37,10 +39,16 @@ export async function deleteCompany(cnpj: string): Promise<void> {
 
 export function startSync(
   cnpj: string,
+  opts: SyncOptions,
   onEvent: (event: SyncProgress) => void,
   onClose: () => void
 ): EventSource {
-  const es = new EventSource(`/api/sync/${cnpj}`);
+  const params = new URLSearchParams();
+  if (opts.dataInicio) params.set('dataInicio', opts.dataInicio);
+  if (opts.dataFim) params.set('dataFim', opts.dataFim);
+  if (opts.gerarPdf) params.set('gerarPdf', 'true');
+  const qs = params.toString();
+  const es = new EventSource(`/api/sync/${cnpj}${qs ? '?' + qs : ''}`);
   es.onmessage = (e) => {
     const data = JSON.parse(e.data as string) as SyncProgress;
     onEvent(data);

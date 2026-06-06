@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { CompanyCard } from '../components/CompanyCard';
 import { AddCompanyModal } from '../components/AddCompanyModal';
 import { SyncLogPanel, type LogEntry } from '../components/SyncLogPanel';
+import { SyncModal, type SyncOptions } from '../components/SyncModal';
 import { listCompanies, createCompany, updateCompany, deleteCompany, startSync } from '../lib/api';
 import type { Company } from '../types';
 
@@ -11,6 +12,7 @@ export function Dashboard() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [syncModalCnpj, setSyncModalCnpj] = useState<string | null>(null);
   const logIdRef = useRef(0);
 
   const addLog = useCallback((text: string, type: LogEntry['type'] = 'progress') => {
@@ -27,11 +29,14 @@ export function Dashboard() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
-  const handleSync = (cnpj: string) => {
+  const handleSyncStart = (opts: SyncOptions) => {
+    const cnpj = syncModalCnpj!;
+    setSyncModalCnpj(null);
     setSyncing(prev => ({ ...prev, [cnpj]: true }));
     setLogs([]);
     startSync(
       cnpj,
+      opts,
       (event) => addLog(event.message, event.type),
       () => {
         setSyncing(prev => ({ ...prev, [cnpj]: false }));
@@ -57,6 +62,8 @@ export function Dashboard() {
     await load();
   };
 
+  const syncingCompany = companies.find(c => c.cnpj === syncModalCnpj);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -81,7 +88,7 @@ export function Dashboard() {
                 key={c.cnpj}
                 company={c}
                 syncing={!!syncing[c.cnpj]}
-                onSync={handleSync}
+                onSync={(cnpj) => setSyncModalCnpj(cnpj)}
                 onEdit={(company) => { setEditingCompany(company); setModalOpen(true); }}
                 onDelete={handleDelete}
               />
@@ -100,6 +107,13 @@ export function Dashboard() {
         onClose={() => { setModalOpen(false); setEditingCompany(null); }}
         onSave={handleSave}
         initial={editingCompany}
+      />
+
+      <SyncModal
+        open={syncModalCnpj !== null}
+        companyName={syncingCompany?.nome ?? ''}
+        onClose={() => setSyncModalCnpj(null)}
+        onSync={handleSyncStart}
       />
     </div>
   );
