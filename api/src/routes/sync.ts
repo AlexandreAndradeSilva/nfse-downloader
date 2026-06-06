@@ -1,8 +1,8 @@
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { Router } from 'express';
 import { getCompany, updateLastNsu } from '../config-store.js';
 import { fetchDFeLote } from '../services/adn-client.js';
-import { runSync } from '../services/sync-engine.js';
+import { runSync, type SyncOptions } from '../services/sync-engine.js';
 
 export const syncRouter = Router();
 
@@ -19,11 +19,19 @@ syncRouter.get('/:cnpj', async (req, res) => {
     res.status(400).json({ error: `Certificado não encontrado: ${company.pfxPath}` });
     return;
   }
-  const { statSync } = await import('fs');
   if (statSync(company.pfxPath).isDirectory()) {
     res.status(400).json({ error: `O caminho informado é uma pasta, não um arquivo .pfx: ${company.pfxPath}` });
     return;
   }
+
+  const { dataInicio, dataFim, gerarPdf } = req.query as Record<string, string>;
+  const options: SyncOptions = {
+    gerarPdf: gerarPdf === 'true',
+    dateRange: (dataInicio || dataFim) ? {
+      dataInicio: dataInicio ? new Date(dataInicio) : undefined,
+      dataFim: dataFim ? new Date(dataFim + 'T23:59:59') : undefined,
+    } : undefined,
+  };
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -34,22 +42,23 @@ syncRouter.get('/:cnpj', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, ...data as object })}\n\n`);
   };
 
-  send('progress', { message: `Iniciando sync para ${company.nome} (NSU atual: ${company.lastNsu})` });
+  const filtroMsg = options.dateRange
+    ? ` | Período: ${dataInicio ?? '...'} → ${dataFim ?? '...'}`
+    : ' | Sem filtro de data';
+  send('progress', { message: `Iniciando sync para ${company.nome} (NSU: ${company.lastNsu})${filtroMsg}` });
 
   try {
     const fetchFn = (nsu: number, cnpjConsulta: string) =>
       fetchDFeLote(
         { baseUrl: company.baseUrl, pfxPath: company.pfxPath, pfxPassword: company.pfxPassword },
-        nsu,
-        cnpjConsulta
+        nsu, cnpjConsulta
       );
 
-    const result = await runSync(company, fetchFn, (message) => send('progress', { message }));
-
+    const result = await runSync(company, fetchFn, (message) => send('progress', { message }), options);
     updateLastNsu(cnpj, result.lastNsu);
 
     send('done', {
-      message: `Concluído: ${result.prestados} prestados, ${result.tomados} tomados, ${result.errors} erros`,
+      message: `Concluído: ${result.prestados} prestados, ${result.tomados} tomados, ${result.pulados} pulados, ${result.errors} erros`,
       ...result,
     });
   } catch (err) {
