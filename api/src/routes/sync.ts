@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import { Router } from 'express';
 import { getCompany, updateLastNsu } from '../config-store.js';
 import { fetchDFeLote } from '../services/adn-client.js';
@@ -11,6 +12,11 @@ syncRouter.get('/:cnpj', async (req, res) => {
 
   if (!company) {
     res.status(404).json({ error: 'Empresa não encontrada' });
+    return;
+  }
+
+  if (!existsSync(company.pfxPath)) {
+    res.status(400).json({ error: `Certificado não encontrado: ${company.pfxPath}` });
     return;
   }
 

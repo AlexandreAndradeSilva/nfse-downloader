@@ -20,14 +20,22 @@ export async function runSync(
   let prestados = 0;
   let tomados = 0;
   let errors = 0;
+  let consecutiveErrors = 0;
+  const MAX_CONSECUTIVE_ERRORS = 3;
 
   while (true) {
     let response: AdnDistribuicaoResponse;
     try {
       response = await fetchFn(currentNsu, company.cnpj);
+      consecutiveErrors = 0;
     } catch (err) {
       errors++;
+      consecutiveErrors++;
       onProgress(`[ERRO] NSU ${currentNsu}: ${(err as Error).message}`);
+      if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        onProgress(`[FATAL] ${MAX_CONSECUTIVE_ERRORS} erros consecutivos — sync abortado.`);
+        break;
+      }
       currentNsu++;
       continue;
     }
