@@ -19,6 +19,11 @@ syncRouter.get('/:cnpj', async (req, res) => {
     res.status(400).json({ error: `Certificado não encontrado: ${company.pfxPath}` });
     return;
   }
+  const { statSync } = await import('fs');
+  if (statSync(company.pfxPath).isDirectory()) {
+    res.status(400).json({ error: `O caminho informado é uma pasta, não um arquivo .pfx: ${company.pfxPath}` });
+    return;
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
