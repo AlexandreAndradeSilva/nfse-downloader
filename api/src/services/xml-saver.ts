@@ -3,9 +3,19 @@ import { promisify } from 'util';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { XMLParser } from 'fast-xml-parser';
+import { generateDanfse } from './danfse-generator.js';
 
 const gunzip = promisify(zlib.gunzip);
-const parser = new XMLParser({ ignoreAttributes: false });
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  removeNSPrefix: true,
+});
+
+export interface DateRange {
+  dataInicio?: Date;
+  dataFim?: Date;
+}
 
 export interface SavedXmlInfo {
   nsu: number;
@@ -20,18 +30,33 @@ export async function decodeAndSave(
   nsu: number,
   cnpjEmpresa: string,
   outputFolder: string,
-  nomeEmpresa: string
-): Promise<SavedXmlInfo> {
+  nomeEmpresa: string,
+  dateRange?: DateRange,
+  gerarPdf = false
+): Promise<SavedXmlInfo | null> {
   const buffer = Buffer.from(xmlBase64Gzip, 'base64');
   const decompressed = await gunzip(buffer);
   const xmlStr = decompressed.toString('utf-8');
 
   const parsed = parser.parse(xmlStr);
-  const infNFSe = parsed?.NFSe?.infNFSe ?? parsed?.nfse?.infNFSe ?? {};
+  const infNFSe = parsed?.NFSe?.infNFSe ?? {};
+  const dps = infNFSe?.DPS?.infDPS ?? {};
 
-  const chaveAcesso: string = infNFSe.chNFSe ?? infNFSe.chaveAcesso ?? String(nsu);
+  const chaveAcesso: string = (() => {
+    const idAttr = infNFSe?.['@_Id'] ?? '';
+    const str = String(idAttr);
+    return str.startsWith('NFS') ? str.slice(3) : (str || String(nsu));
+  })();
+
   const competencia = extractCompetencia(infNFSe);
-  const cnpjPrestador: string = String(infNFSe.prestador?.CNPJ ?? infNFSe.prestador?.cnpj ?? '');
+  const dataEmissao = extractDataEmissao(dps, infNFSe);
+
+  if (dateRange && dataEmissao) {
+    if (dateRange.dataInicio && dataEmissao < dateRange.dataInicio) return null;
+    if (dateRange.dataFim && dataEmissao > dateRange.dataFim) return null;
+  }
+
+  const cnpjPrestador: string = String(infNFSe?.emit?.CNPJ ?? '');
   const tipo: 'prestados' | 'tomados' =
     cnpjPrestador.replace(/\D/g, '') === cnpjEmpresa.replace(/\D/g, '')
       ? 'prestados'
@@ -40,22 +65,38 @@ export async function decodeAndSave(
   const dir = join(outputFolder, nomeEmpresa, competencia, tipo);
   mkdirSync(dir, { recursive: true });
 
-  const fileName = `${String(nsu).padStart(9, '0')}-${chaveAcesso}.xml`;
-  const filePath = join(dir, fileName);
+  const base = `${String(nsu).padStart(9, '0')}-${chaveAcesso}`;
+  const xmlPath = join(dir, `${base}.xml`);
 
-  if (!existsSync(filePath)) {
-    writeFileSync(filePath, xmlStr, 'utf-8');
+  if (!existsSync(xmlPath)) {
+    writeFileSync(xmlPath, xmlStr, 'utf-8');
   }
 
-  return { nsu, tipo, competencia, filePath, chaveAcesso };
+  if (gerarPdf) {
+    const pdfPath = join(dir, `${base}.pdf`);
+    if (!existsSync(pdfPath)) {
+      try {
+        const pdfBuf = await generateDanfse(xmlStr);
+        writeFileSync(pdfPath, pdfBuf);
+      } catch (err) {
+        console.warn(`[AVISO] PDF não gerado para NSU ${nsu}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  return { nsu, tipo, competencia, filePath: xmlPath, chaveAcesso };
+}
+
+function extractDataEmissao(dps: Record<string, unknown>, infNFSe: Record<string, unknown>): Date | null {
+  const raw = String(dps?.dhEmi ?? infNFSe?.dhProc ?? '');
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function extractCompetencia(infNFSe: Record<string, unknown>): string {
-  const raw =
-    (infNFSe.dCompet as string) ??
-    (infNFSe.competencia as string) ??
-    (infNFSe.dtEmissao as string) ??
-    new Date().toISOString();
+  const dps = (infNFSe?.DPS as Record<string, unknown>)?.infDPS as Record<string, unknown>;
+  const raw = String(dps?.dCompet ?? infNFSe?.dCompet ?? infNFSe?.dtEmissao ?? new Date().toISOString());
   const match = raw.match(/^(\d{4})-(\d{2})/);
   if (match) return `${match[2]}${match[1]}`;
   return `${String(new Date().getMonth() + 1).padStart(2, '0')}${new Date().getFullYear()}`;
