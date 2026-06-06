@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CompanyCard } from '../components/CompanyCard';
 import { AddCompanyModal } from '../components/AddCompanyModal';
 import { SyncLogPanel, type LogEntry } from '../components/SyncLogPanel';
@@ -9,15 +9,14 @@ export function Dashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [logCounter, setLogCounter] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const logIdRef = useRef(0);
 
   const addLog = useCallback((text: string, type: LogEntry['type'] = 'progress') => {
-    setLogCounter(n => {
-      setLogs(prev => [...prev.slice(-200), { id: n + 1, text, type }]);
-      return n + 1;
-    });
+    logIdRef.current += 1;
+    const id = logIdRef.current;
+    setLogs(prev => [...prev.slice(-200), { id, text, type }]);
   }, []);
 
   const load = useCallback(async () => {
@@ -25,6 +24,7 @@ export function Dashboard() {
     setCompanies(data);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   const handleSync = (cnpj: string) => {
