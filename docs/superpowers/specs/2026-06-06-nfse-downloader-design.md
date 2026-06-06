@@ -119,14 +119,15 @@ C:\NFSe\Empresa X Ltda\062026\tomados\001502-21060000000098765600001.xml
 
 ## API ADN Utilizada
 
-**Base URL produção:** `https://nfse.receita.fazenda.gov.br/adn`
-**Base URL homologação:** `https://hom-nfse.receita.fazenda.gov.br/adn`
+**Base URL:** configurável por empresa (campo `baseUrl` no `config.json`). A documentação fornecida usa path relativo `/adn` — o domínio exato de produção/homologação deve ser confirmado com a Receita Federal ou documentação oficial do ADN antes da implementação.
 
 | Endpoint | Uso |
 |----------|-----|
 | `GET /DFe/{NSU}?cnpjConsulta={cnpj}&lote=true` | Busca lote de documentos a partir do NSU |
 
 > O endpoint `/NFSe/{ChaveAcesso}/Eventos` (eventos por chave de acesso) está fora do escopo desta versão.
+
+> **Ação necessária antes de implementar:** confirmar as URLs de produção e homologação do ADN NFS-e com a documentação oficial da Receita Federal.
 
 ---
 
