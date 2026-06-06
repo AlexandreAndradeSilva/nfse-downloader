@@ -5,7 +5,7 @@ import { runSync } from '../services/sync-engine.js';
 
 export const syncRouter = Router();
 
-syncRouter.post('/:cnpj', async (req, res) => {
+syncRouter.get('/:cnpj', async (req, res) => {
   const cnpj = req.params.cnpj.replace(/\D/g, '');
   const company = getCompany(cnpj);
 
