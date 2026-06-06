@@ -1,5 +1,6 @@
+import { Dashboard } from './pages/Dashboard';
 import './index.css';
 
 export default function App() {
-  return <div>NFS-e Downloader</div>;
+  return <Dashboard />;
 }
