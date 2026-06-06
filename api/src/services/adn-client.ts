@@ -28,6 +28,16 @@ export async function fetchDFeLote(
     headers: { Accept: 'application/json' },
   });
 
+  // HTTP 404 do ADN = NENHUM_DOCUMENTO_LOCALIZADO (resposta válida, não erro)
+  if (res.status === 404) {
+    return {
+      StatusProcessamento: 'NENHUM_DOCUMENTO_LOCALIZADO',
+      LoteDFe: null,
+      Alertas: null,
+      Erros: null,
+    };
+  }
+
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`ADN ${res.status}: ${body}`);
