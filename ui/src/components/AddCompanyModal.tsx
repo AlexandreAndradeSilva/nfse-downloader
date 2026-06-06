@@ -10,15 +10,16 @@ interface Props {
 
 const EMPTY: Omit<Company, 'lastSync'> = {
   cnpj: '', nome: '', pfxPath: '', pfxPassword: '',
-  outputFolder: '', baseUrl: '', ambiente: 'PRODUCAO', lastNsu: 0,
+  outputFolder: '', baseUrl: 'https://adn.nfse.gov.br/contribuintes', ambiente: 'PRODUCAO', lastNsu: 0,
 };
 
 export function AddCompanyModal({ open, onClose, onSave, initial }: Props) {
   const [form, setForm] = useState<Omit<Company, 'lastSync'>>(EMPTY);
 
+  // eslint-disable react-hooks/set-state-in-effect
   useEffect(() => {
     setForm(initial ? { ...initial } : { ...EMPTY });
-  }, [initial, open]);
+  }, [initial]);
 
   if (!open) return null;
 
