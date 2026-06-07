@@ -136,6 +136,17 @@ export default function App() {
         onClose={() => setSyncModalCnpj(null)}
         onSync={handleSyncStart}
       />
+      <footer style={{
+        textAlign: 'center',
+        padding: '16px 24px',
+        fontSize: 12,
+        color: 'rgba(255,255,255,.25)',
+        borderTop: '1px solid rgba(255,255,255,.06)',
+        background: 'rgba(0,0,0,.2)',
+        marginTop: 'auto',
+      }}>
+        ©2026 NFS-e Downloader — Feito por Alexandre V. A. Silva
+      </footer>
     </div>
   );
 }
