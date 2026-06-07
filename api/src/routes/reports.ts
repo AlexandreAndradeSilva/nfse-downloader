@@ -102,11 +102,11 @@ function parseXmlToRow(xmlStr: string, tipo: string, periodo: string): NoteRow |
       valorServico: n(vServPrest.vServ || valoresNfse.vBC),
       bcISSQN: vBC,
       aliquotaISSQN: pAliq,
-      issRetido: TP_RET_ISSQN[tpRet] ?? tpRet || '-',
+      issRetido: (TP_RET_ISSQN[tpRet] ?? tpRet) || '-',
       valorISSQN: issRetidoVal,
       vPis: n(piscofins.vPis),
       vCofins: n(piscofins.vCofins),
-      retPisCofins: TP_RET_PIS[tpRetPis] ?? tpRetPis || '-',
+      retPisCofins: (TP_RET_PIS[tpRetPis] ?? tpRetPis) || '-',
       valorLiquido: n(valoresNfse.vLiq),
     };
   } catch {
