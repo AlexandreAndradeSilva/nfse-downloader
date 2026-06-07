@@ -1,175 +1,199 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { CompanyCard } from '../components/CompanyCard';
-import { AddCompanyModal } from '../components/AddCompanyModal';
-import { SyncLogPanel, type LogEntry } from '../components/SyncLogPanel';
-import { SyncModal, type SyncOptions } from '../components/SyncModal';
-import { CertificateSyncModal, type CertSyncParams } from '../components/CertificateSyncModal';
-import { listCompanies, createCompany, updateCompany, deleteCompany, startSync } from '../lib/api';
-import type { Company } from '../types';
+import { useState, useEffect, useCallback } from 'react';
+import { fetchStats } from '../lib/api';
+import type { Company, StatsResult } from '../types';
 
-const BASE_URL = 'https://adn.nfse.gov.br/contribuintes';
+interface Props {
+  companies: Company[];
+}
 
-export function Dashboard() {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [syncing, setSyncing] = useState<Record<string, boolean>>({});
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [certModalOpen, setCertModalOpen] = useState(false);
-  const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-  const [syncModalCnpj, setSyncModalCnpj] = useState<string | null>(null);
-  const logIdRef = useRef(0);
+function fmtBRL(v: number): string {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
-  const addLog = useCallback((text: string, type: LogEntry['type'] = 'progress') => {
-    logIdRef.current += 1;
-    const id = logIdRef.current;
-    setLogs(prev => [...prev.slice(-200), { id, text, type }]);
-  }, []);
+function fmtDate(iso: string | null): string {
+  if (!iso) return 'Nunca';
+  return new Date(iso).toLocaleDateString('pt-BR') + ' ' +
+    new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
 
-  const load = useCallback(async () => {
-    const data = await listCompanies();
-    setCompanies(data);
-  }, []);
+function fmtCnpj(v: string) {
+  return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+}
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load(); }, [load]);
+export function Dashboard({ companies }: Props) {
+  const [stats, setStats] = useState<StatsResult | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
-  const runSync = (cnpj: string, opts: SyncOptions) => {
-    setSyncing(prev => ({ ...prev, [cnpj]: true }));
-    setLogs([]);
-    startSync(
-      cnpj,
-      opts,
-      (event) => addLog(event.message, event.type),
-      () => {
-        setSyncing(prev => ({ ...prev, [cnpj]: false }));
-        load();
-      }
-    );
-  };
+  const activeCompany: Company | null = companies.length > 0
+    ? [...companies].sort((a, b) => (b.lastSync ?? '').localeCompare(a.lastSync ?? ''))[0]
+    : null;
 
-  const handleSyncStart = (opts: SyncOptions) => {
-    const cnpj = syncModalCnpj!;
-    setSyncModalCnpj(null);
-    runSync(cnpj, opts);
-  };
-
-  // Fluxo rápido via seletor de certificado Windows
-  const handleCertSync = async (params: CertSyncParams) => {
-    setCertModalOpen(false);
+  const loadStats = useCallback(async () => {
+    if (!activeCompany) { setStats(null); return; }
+    setStatsLoading(true);
     try {
-      const existing = companies.find(c => c.cnpj === params.cnpj);
-      const companyData: Omit<Company, 'lastSync'> = {
-        cnpj: params.cnpj,
-        nome: params.nome,
-        pfxPath: params.tempPfxPath,      // arquivo temp exportado pelo Windows
-        pfxPassword: params.tempPassword,  // senha gerada automaticamente
-        outputFolder: params.outputFolder,
-        baseUrl: BASE_URL,
-        ambiente: 'PRODUCAO',
-        lastNsu: existing?.lastNsu ?? 0,
-      };
-      if (existing) {
-        await updateCompany(params.cnpj, companyData);
-      } else {
-        await createCompany(companyData);
-      }
-      await load();
-    } catch (e) {
-      addLog(`[ERRO] Não foi possível salvar a empresa: ${(e as Error).message}`, 'error');
-      return;
-    }
-    runSync(params.cnpj, {
-      dataInicio: params.dataInicio,
-      dataFim: params.dataFim,
-      gerarPdf: params.gerarPdf,
-    });
-  };
+      const s = await fetchStats(activeCompany.cnpj);
+      setStats(s);
+    } catch { setStats(null); }
+    finally { setStatsLoading(false); }
+  }, [activeCompany?.cnpj]);
 
-  const handleSave = async (data: Omit<Company, 'lastSync'>) => {
-    if (editingCompany) {
-      await updateCompany(data.cnpj, data);
-    } else {
-      await createCompany(data);
-    }
-    setAddModalOpen(false);
-    setEditingCompany(null);
-    await load();
-  };
-
-  const handleDelete = async (cnpj: string) => {
-    if (!confirm('Remover esta empresa?')) return;
-    await deleteCompany(cnpj);
-    await load();
-  };
-
-  const syncingCompany = companies.find(c => c.cnpj === syncModalCnpj);
+  useEffect(() => { loadStats(); }, [loadStats]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">NFS-e Downloader</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setCertModalOpen(true)}
-            className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-          >
-            🔍 Buscar Notas
-          </button>
-          <button
-            onClick={() => { setEditingCompany(null); setAddModalOpen(true); }}
-            className="px-4 py-2 rounded border border-gray-300 text-sm font-medium hover:bg-gray-50"
-          >
-            + Cadastro manual
-          </button>
+    <div style={{
+      padding: '32px 28px', flex: 1,
+      background: 'linear-gradient(160deg,#1e1b4b 0%,#0f0e1a 40%)',
+      minHeight: 'calc(100vh - 56px)',
+    }}>
+      {companies.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'100px 24px', color:'rgba(255,255,255,.3)' }}>
+          <div style={{ fontSize:56, marginBottom:20 }}>📄</div>
+          <h2 style={{ fontSize:20, fontWeight:700, marginBottom:8, color:'rgba(255,255,255,.6)' }}>
+            Nenhuma empresa cadastrada
+          </h2>
+          <p style={{ fontSize:14 }}>Clique em <strong style={{color:'#a5b4fc'}}>Buscar Notas</strong> para começar.</p>
         </div>
-      </header>
+      ) : (
+        <>
+          {/* Linha 1: Empresa + Contadores */}
+          <div style={{ display:'grid', gridTemplateColumns:'1.7fr 1fr 1fr', gap:18, marginBottom:18 }}>
 
-      <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
-        {companies.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-lg mb-2">Clique em <strong>Buscar Notas</strong> para começar.</p>
-            <p className="text-sm">O sistema detecta automaticamente os certificados instalados no Windows.</p>
+            {/* Card Empresa */}
+            <div style={{
+              background:'rgba(99,102,241,.1)', border:'1px solid rgba(99,102,241,.25)',
+              borderRadius:16, padding:24, display:'flex', flexDirection:'column', gap:8,
+              position:'relative', overflow:'hidden',
+            }}>
+              <div style={{ position:'absolute', top:-30, right:-30, width:120, height:120, background:'radial-gradient(circle,rgba(99,102,241,.2),transparent 70%)', borderRadius:'50%' }} />
+              <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Empresa Ativa</div>
+              <div style={{ fontSize:16, fontWeight:700, color:'white', lineHeight:1.3 }}>{activeCompany?.nome}</div>
+              <div style={{ fontSize:12, color:'rgba(255,255,255,.4)' }}>
+                {activeCompany ? fmtCnpj(activeCompany.cnpj) : ''} · Produção
+              </div>
+              <div style={{ display:'flex', gap:16, marginTop:6 }}>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,.4)' }}>
+                  Último sync: <strong style={{color:'rgba(255,255,255,.75)',fontWeight:600}}>{fmtDate(activeCompany?.lastSync ?? null)}</strong>
+                </div>
+              </div>
+              <div style={{
+                display:'inline-flex', alignItems:'center', gap:5,
+                background:'rgba(99,102,241,.2)', border:'1px solid rgba(99,102,241,.3)',
+                borderRadius:20, padding:'4px 12px', fontSize:11, color:'#a5b4fc',
+                width:'fit-content', marginTop:4,
+              }}>
+                📌 NSU atual: {activeCompany?.lastNsu ?? 0}
+              </div>
+            </div>
+
+            {/* Card Tomadas */}
+            <div style={{
+              background:'rgba(99,102,241,.12)', border:'1px solid rgba(99,102,241,.2)',
+              borderRadius:16, padding:24, display:'flex', flexDirection:'column', justifyContent:'space-between',
+              position:'relative', overflow:'hidden',
+            }}>
+              <div style={{ position:'absolute', bottom:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'radial-gradient(circle,rgba(99,102,241,.15),transparent 70%)' }} />
+              <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Notas Tomadas</div>
+              <div style={{ fontSize:56, fontWeight:900, color:'#a5b4fc', lineHeight:1, margin:'10px 0 4px' }}>
+                {stats?.tomados.count ?? '—'}
+              </div>
+              <div>
+                <div style={{ height:3, borderRadius:2, background:'linear-gradient(90deg,#6366f1,transparent)', marginTop:8 }} />
+                <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:6 }}>Serviços recebidos</div>
+              </div>
+            </div>
+
+            {/* Card Prestadas */}
+            <div style={{
+              background:'rgba(34,197,94,.08)', border:'1px solid rgba(34,197,94,.18)',
+              borderRadius:16, padding:24, display:'flex', flexDirection:'column', justifyContent:'space-between',
+              position:'relative', overflow:'hidden',
+            }}>
+              <div style={{ position:'absolute', bottom:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'radial-gradient(circle,rgba(34,197,94,.12),transparent 70%)' }} />
+              <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Notas Prestadas</div>
+              <div style={{ fontSize:56, fontWeight:900, color:'#86efac', lineHeight:1, margin:'10px 0 4px' }}>
+                {stats?.prestados.count ?? '—'}
+              </div>
+              <div>
+                <div style={{ height:3, borderRadius:2, background:'linear-gradient(90deg,#22c55e,transparent)', marginTop:8 }} />
+                <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:6 }}>Serviços emitidos</div>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {companies.map(c => (
-              <CompanyCard
-                key={c.cnpj}
-                company={c}
-                syncing={!!syncing[c.cnpj]}
-                onSync={(cnpj) => setSyncModalCnpj(cnpj)}
-                onEdit={(company) => { setEditingCompany(company); setAddModalOpen(true); }}
-                onDelete={handleDelete}
-              />
-            ))}
+
+          {/* Linha 2: Valores financeiros */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:18 }}>
+
+            {/* Total Tomados */}
+            <div style={{
+              background:'linear-gradient(135deg,rgba(99,102,241,.18),rgba(139,92,246,.12))',
+              border:'1px solid rgba(99,102,241,.3)',
+              borderRadius:16, padding:'26px 28px',
+              display:'flex', alignItems:'center', gap:20,
+              position:'relative', overflow:'hidden',
+            }}>
+              <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(99,102,241,.12),transparent 70%)' }} />
+              <div style={{ width:52, height:52, borderRadius:14, background:'rgba(99,102,241,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📥</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Tomados</div>
+                <div style={{ fontSize:32, fontWeight:900, color:'#c4b5fd', lineHeight:1 }}>
+                  {statsLoading ? '...' : fmtBRL(stats?.tomados.totalServico ?? 0)}
+                </div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:5 }}>
+                  {stats?.tomados.count ?? 0} notas · todos os períodos
+                </div>
+              </div>
+              <div style={{ width:1, height:48, borderRadius:1, background:'rgba(99,102,241,.3)', flexShrink:0 }} />
+              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                {[
+                  { k:'ISS Retido', v: stats?.tomados.issRetido ?? 0 },
+                  { k:'PIS/COFINS', v: stats?.tomados.pisCofins ?? 0 },
+                  { k:'Valor Líquido', v: stats?.tomados.liquido ?? 0 },
+                ].map(row => (
+                  <div key={row.k} style={{ display:'flex', justifyContent:'space-between', gap:16, alignItems:'center' }}>
+                    <span style={{ fontSize:10, color:'rgba(255,255,255,.35)', whiteSpace:'nowrap' }}>{row.k}</span>
+                    <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,.6)' }}>{fmtBRL(row.v)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Total Prestados */}
+            <div style={{
+              background:'linear-gradient(135deg,rgba(34,197,94,.12),rgba(16,185,129,.08))',
+              border:'1px solid rgba(34,197,94,.25)',
+              borderRadius:16, padding:'26px 28px',
+              display:'flex', alignItems:'center', gap:20,
+              position:'relative', overflow:'hidden',
+            }}>
+              <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(34,197,94,.1),transparent 70%)' }} />
+              <div style={{ width:52, height:52, borderRadius:14, background:'rgba(34,197,94,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📤</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Prestados</div>
+                <div style={{ fontSize:32, fontWeight:900, color:'#86efac', lineHeight:1 }}>
+                  {statsLoading ? '...' : fmtBRL(stats?.prestados.totalServico ?? 0)}
+                </div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:5 }}>
+                  {stats?.prestados.count ?? 0} notas · todos os períodos
+                </div>
+              </div>
+              <div style={{ width:1, height:48, borderRadius:1, background:'rgba(34,197,94,.25)', flexShrink:0 }} />
+              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                {[
+                  { k:'ISS Retido', v: stats?.prestados.issRetido ?? 0 },
+                  { k:'PIS/COFINS', v: stats?.prestados.pisCofins ?? 0 },
+                  { k:'Valor Líquido', v: stats?.prestados.liquido ?? 0 },
+                ].map(row => (
+                  <div key={row.k} style={{ display:'flex', justifyContent:'space-between', gap:16, alignItems:'center' }}>
+                    <span style={{ fontSize:10, color:'rgba(255,255,255,.35)', whiteSpace:'nowrap' }}>{row.k}</span>
+                    <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,.6)' }}>{fmtBRL(row.v)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        )}
-
-        <div>
-          <h2 className="text-sm font-medium text-gray-700 mb-2">Log de Sincronização</h2>
-          <SyncLogPanel logs={logs} />
-        </div>
-      </main>
-
-      <CertificateSyncModal
-        open={certModalOpen}
-        onClose={() => setCertModalOpen(false)}
-        onSync={handleCertSync}
-      />
-
-      <AddCompanyModal
-        open={addModalOpen}
-        onClose={() => { setAddModalOpen(false); setEditingCompany(null); }}
-        onSave={handleSave}
-        initial={editingCompany}
-      />
-
-      <SyncModal
-        open={syncModalCnpj !== null}
-        companyName={syncingCompany?.nome ?? ''}
-        onClose={() => setSyncModalCnpj(null)}
-        onSync={handleSyncStart}
-      />
+        </>
+      )}
     </div>
   );
 }
