@@ -22,13 +22,16 @@ Add-Type -AssemblyName System.Security;
 Add-Type -AssemblyName System.Windows.Forms;
 $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My','CurrentUser');
 $store.Open('ReadOnly');
+$icpCerts = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection;
+foreach ($c in $store.Certificates) { if ($c.Subject -match '\b\d{14}\b') { $icpCerts.Add($c) | Out-Null } }
+$store.Close();
+if ($icpCerts.Count -eq 0) { Write-Output '{\"empty\":true}'; exit 0 }
 $selected = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection(
-  $store.Certificates,
+  $icpCerts,
   'Certificado NFS-e',
-  'Selecione o certificado digital para acessar o Portal Nacional NFS-e',
+  'Selecione o certificado digital ICP-Brasil para acessar o Portal Nacional NFS-e',
   [System.Security.Cryptography.X509Certificates.X509SelectionFlag]::SingleSelection
 );
-$store.Close();
 if ($selected -eq $null -or $selected.Count -eq 0) { Write-Output '{}'; exit 0 }
 $cert = $selected[0];
 $subject = $cert.Subject;
@@ -59,6 +62,10 @@ try {
     data = JSON.parse(raw);
   } catch {
     return null;
+  }
+
+  if (data.empty) {
+    throw new Error('Nenhum certificado ICP-Brasil com CNPJ encontrado no repositório do Windows.\n\nUse o botão "+ Cadastro manual" para informar o arquivo .pfx manualmente.');
   }
 
   const subject = String(data.subject ?? '');
