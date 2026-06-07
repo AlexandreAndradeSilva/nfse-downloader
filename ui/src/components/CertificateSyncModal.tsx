@@ -18,6 +18,7 @@ interface PickedCert {
   thumbprint: string;
   tempPfxPath: string;
   tempPassword: string;
+  needsPassword: boolean;
 }
 
 interface Props {
@@ -45,6 +46,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
   const [dataInicio, setDataInicio] = useState(firstOfMonth);
   const [dataFim, setDataFim] = useState(today);
   const [gerarPdf, setGerarPdf] = useState(true);
+  const [pfxPassword, setPfxPassword] = useState('');
   const [browsingFolder, setBrowsingFolder] = useState(false);
 
   useEffect(() => {
@@ -90,11 +92,12 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
     e.preventDefault();
     if (!cert) return;
     if (!outputFolder.trim()) { setErrorMsg('Selecione a pasta de destino.'); return; }
+    if (cert.needsPassword && !pfxPassword.trim()) { setErrorMsg('Informe a senha do arquivo .pfx.'); return; }
     onSync({
       cnpj: cert.cnpj,
       nome: cert.nome,
       tempPfxPath: cert.tempPfxPath,
-      tempPassword: cert.tempPassword,
+      tempPassword: cert.needsPassword ? pfxPassword : cert.tempPassword,
       outputFolder,
       dataInicio,
       dataFim,
@@ -133,12 +136,30 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
               <h2 className="text-base font-semibold">Buscar Notas</h2>
               <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
-            <div className="mb-4 bg-blue-50 rounded p-2 text-sm">
-              <div className="font-medium text-blue-900">{cert.nome}</div>
-              <div className="text-blue-700 text-xs">CNPJ: {fmtCnpj(cert.cnpj)}</div>
+            <div className={`mb-4 rounded p-2 text-sm ${cert.needsPassword ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50'}`}>
+              <div className="font-medium text-gray-900">{cert.nome}</div>
+              <div className="text-xs text-gray-500">CNPJ: {fmtCnpj(cert.cnpj)}</div>
+              {cert.needsPassword && (
+                <div className="text-xs text-amber-700 mt-1">
+                  ⚠ Certificado não exportável — usando arquivo .pfx localizado em disco
+                </div>
+              )}
             </div>
 
             <form onSubmit={handleSync} className="space-y-4">
+              {cert.needsPassword && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Senha do arquivo .pfx</label>
+                  <input
+                    type="password"
+                    value={pfxPassword}
+                    onChange={e => setPfxPassword(e.target.value)}
+                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm"
+                    placeholder="Senha do certificado"
+                    required
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Pasta de Destino</label>
                 <div className="flex gap-2">

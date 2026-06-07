@@ -1,21 +1,21 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { tmpdir } from 'os';
 import { join } from 'path';
-import { unlinkSync, existsSync } from 'fs';
+import { unlinkSync, existsSync, readdirSync } from 'fs';
 
 const execAsync = promisify(exec);
 
+// Abre o seletor nativo do Windows de certificados digitais
+// (mesmo painel que aparece no Chrome quando um site requer certificado)
 export interface PickedCert {
   cnpj: string;
   nome: string;
   thumbprint: string;
   tempPfxPath: string;
   tempPassword: string;
+  needsPassword: boolean; // true = cert não exportável, usou .pfx do disco
 }
 
-// Abre o seletor nativo do Windows de certificados digitais
-// (mesmo painel que aparece no Chrome quando um site requer certificado)
 export async function pickCertificateFromStore(): Promise<PickedCert | null> {
   const ps = `
 Add-Type -AssemblyName System.Security;
@@ -38,9 +38,9 @@ $tempPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "nfse_" +
 try {
   $bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $tempPass);
   [System.IO.File]::WriteAllBytes($tempPath, $bytes);
-  @{subject=$subject;thumbprint=$thumbprint;tempPath=$tempPath;tempPass=$tempPass} | ConvertTo-Json -Compress
+  @{subject=$subject;thumbprint=$thumbprint;tempPath=$tempPath;tempPass=$tempPass;exportable=$true} | ConvertTo-Json -Compress
 } catch {
-  @{error=$_.Exception.Message} | ConvertTo-Json -Compress
+  @{subject=$subject;thumbprint=$thumbprint;exportable=$false} | ConvertTo-Json -Compress
 }
   `.trim();
 
@@ -54,25 +54,52 @@ try {
 
   if (!raw || raw === '{}') return null;
 
-  let data: Record<string, string>;
+  let data: Record<string, unknown>;
   try {
     data = JSON.parse(raw);
   } catch {
     return null;
   }
 
-  if (data.error) throw new Error(data.error);
-
-  const subject = data.subject ?? '';
+  const subject = String(data.subject ?? '');
   const cnpj = extractCnpj(subject);
   if (!cnpj) throw new Error('Certificado selecionado não possui CNPJ. Selecione um certificado ICP-Brasil tipo CNPJ.');
 
+  const nome = extractNome(subject);
+
+  // Certificado exportável — usa o arquivo temporário gerado
+  if (data.exportable) {
+    return {
+      cnpj,
+      nome,
+      thumbprint: String(data.thumbprint),
+      tempPfxPath: String(data.tempPath),
+      tempPassword: String(data.tempPass),
+      needsPassword: false,
+    };
+  }
+
+  // Certificado não exportável — busca .pfx correspondente no disco
+  const pfxFiles = scanPfxFiles();
+  const pfxPath = pfxFiles.find(p =>
+    p.toLowerCase().includes(cnpj) || matchesNome(p, nome)
+  );
+
+  if (!pfxPath) {
+    throw new Error(
+      `O certificado selecionado não é exportável pelo Windows.\n\n` +
+      `Arquivo .pfx não encontrado automaticamente nas pastas comuns.\n\n` +
+      `Use o botão "+ Cadastro manual" e informe o caminho do arquivo .pfx manualmente.`
+    );
+  }
+
   return {
     cnpj,
-    nome: extractNome(subject),
-    thumbprint: data.thumbprint,
-    tempPfxPath: data.tempPath,
-    tempPassword: data.tempPass,
+    nome,
+    thumbprint: String(data.thumbprint ?? ''),
+    tempPfxPath: pfxPath,
+    tempPassword: '',     // usuário precisará informar
+    needsPassword: true,  // pede senha no formulário
   };
 }
 
@@ -93,6 +120,37 @@ function extractNome(subject: string): string {
     return cnMatch[1].replace(/:\d{14}.*$/, '').trim();
   }
   return subject.split(',')[0] ?? 'Empresa';
+}
+
+function matchesNome(pfxPath: string, nome: string): boolean {
+  const fileName = pfxPath.toLowerCase();
+  const words = nome.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  return words.some(w => fileName.includes(w));
+}
+
+function scanPfxFiles(): string[] {
+  const userProfile = process.env.USERPROFILE ?? '';
+  const dirs = [
+    join(userProfile, 'Documents', 'certificados'),
+    join(userProfile, 'Documents', 'Certificados'),
+    join(userProfile, 'Documents'),
+    join(userProfile, 'Desktop'),
+    join(userProfile, 'Downloads'),
+    join(userProfile, 'OneDrive', 'Documentos', 'certificados'),
+    join(userProfile, 'OneDrive', 'Documentos', 'Certificados'),
+    join(userProfile, 'OneDrive', 'Documentos'),
+    join(userProfile, 'OneDrive', 'Documents'),
+  ];
+  const found: string[] = [];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    try {
+      for (const f of readdirSync(dir)) {
+        if (f.toLowerCase().endsWith('.pfx')) found.push(join(dir, f));
+      }
+    } catch { /* sem permissão */ }
+  }
+  return found;
 }
 
 export async function openFolderDialog(): Promise<string | null> {
@@ -127,6 +185,4 @@ export async function scanWindowsCerts(): Promise<Array<{cnpj: string; nome: str
   }
 }
 
-// Suprime aviso de importação não usada
-export type { tmpdir as _tmpdir };
 
