@@ -1,133 +1,132 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { readdirSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
+import { unlinkSync, existsSync } from 'fs';
 
 const execAsync = promisify(exec);
 
-export interface CertInfo {
-  thumbprint: string;
-  subject: string;
+export interface PickedCert {
   cnpj: string;
   nome: string;
-  validoAte: string;
-  pfxPath?: string;
+  thumbprint: string;
+  tempPfxPath: string;
+  tempPassword: string;
 }
 
-export async function scanWindowsCerts(): Promise<CertInfo[]> {
+// Abre o seletor nativo do Windows de certificados digitais
+// (mesmo painel que aparece no Chrome quando um site requer certificado)
+export async function pickCertificateFromStore(): Promise<PickedCert | null> {
   const ps = `
-    Get-ChildItem Cert:\\CurrentUser\\My |
-    Select-Object Thumbprint,Subject,FriendlyName,@{N='ValidTo';E={$_.NotAfter.ToString('yyyy-MM-dd')}} |
-    ConvertTo-Json -Compress
-  `;
+Add-Type -AssemblyName System.Security;
+Add-Type -AssemblyName System.Windows.Forms;
+$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My','CurrentUser');
+$store.Open('ReadOnly');
+$selected = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection(
+  $store.Certificates,
+  'Certificado NFS-e',
+  'Selecione o certificado digital para acessar o Portal Nacional NFS-e',
+  [System.Security.Cryptography.X509Certificates.X509SelectionFlag]::SingleSelection
+);
+$store.Close();
+if ($selected -eq $null -or $selected.Count -eq 0) { Write-Output '{}'; exit 0 }
+$cert = $selected[0];
+$subject = $cert.Subject;
+$thumbprint = $cert.Thumbprint;
+$tempPass = [System.Guid]::NewGuid().ToString();
+$tempPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "nfse_" + $thumbprint.Substring(0,8) + ".pfx");
+try {
+  $bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $tempPass);
+  [System.IO.File]::WriteAllBytes($tempPath, $bytes);
+  @{subject=$subject;thumbprint=$thumbprint;tempPath=$tempPath;tempPass=$tempPass} | ConvertTo-Json -Compress
+} catch {
+  @{error=$_.Exception.Message} | ConvertTo-Json -Compress
+}
+  `.trim();
 
   let raw: string;
   try {
-    const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps.replace(/\n\s*/g, ' ')}"`);
+    const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { timeout: 60000 });
     raw = stdout.trim();
   } catch {
-    return [];
+    return null;
   }
 
-  if (!raw || raw === 'null') return [];
+  if (!raw || raw === '{}') return null;
 
-  let items: Array<Record<string, string>>;
+  let data: Record<string, string>;
   try {
-    const parsed = JSON.parse(raw);
-    items = Array.isArray(parsed) ? parsed : [parsed];
+    data = JSON.parse(raw);
   } catch {
-    return [];
+    return null;
   }
 
-  const pfxFiles = scanPfxFiles();
-  const results: CertInfo[] = [];
+  if (data.error) throw new Error(data.error);
 
-  for (const item of items) {
-    const subject = item.Subject ?? '';
-    const cnpj = extractCnpj(subject);
-    if (!cnpj) continue;
+  const subject = data.subject ?? '';
+  const cnpj = extractCnpj(subject);
+  if (!cnpj) throw new Error('Certificado selecionado não possui CNPJ. Selecione um certificado ICP-Brasil tipo CNPJ.');
 
-    const nome = extractNome(subject, item.FriendlyName ?? '');
-    const pfxPath = pfxFiles.find(p => p.toLowerCase().includes(cnpj) || matchesNome(p, nome));
+  return {
+    cnpj,
+    nome: extractNome(subject),
+    thumbprint: data.thumbprint,
+    tempPfxPath: data.tempPath,
+    tempPassword: data.tempPass,
+  };
+}
 
-    results.push({
-      thumbprint: item.Thumbprint ?? '',
-      subject,
-      cnpj,
-      nome,
-      validoAte: item.ValidTo ?? '',
-      pfxPath,
-    });
+export function cleanupTempCert(tempPfxPath: string): void {
+  if (existsSync(tempPfxPath)) {
+    try { unlinkSync(tempPfxPath); } catch { /* ignora */ }
   }
-
-  return results;
 }
 
 function extractCnpj(subject: string): string | null {
-  // Padrão ICP-Brasil: CNPJ de 14 dígitos no Subject
   const match = subject.match(/\b(\d{14})\b/);
   return match ? match[1] : null;
 }
 
-function extractNome(subject: string, friendlyName: string): string {
-  // Tenta extrair o nome da empresa do campo CN
+function extractNome(subject: string): string {
   const cnMatch = subject.match(/CN=([^,]+)/i);
   if (cnMatch) {
-    // Remove o CNPJ do CN se estiver junto: "EMPRESA X:12345678000100"
     return cnMatch[1].replace(/:\d{14}.*$/, '').trim();
   }
-  return friendlyName || subject.split(',')[0] || 'Empresa';
-}
-
-function matchesNome(pfxPath: string, nome: string): boolean {
-  const fileName = pfxPath.toLowerCase();
-  const nomeWords = nome.toLowerCase().split(' ').filter(w => w.length > 3);
-  return nomeWords.some(w => fileName.includes(w));
-}
-
-function scanPfxFiles(): string[] {
-  const userProfile = process.env.USERPROFILE ?? process.env.HOME ?? '';
-  const searchDirs = [
-    join(userProfile, 'Documents'),
-    join(userProfile, 'Documents', 'certificados'),
-    join(userProfile, 'Documents', 'Certificados'),
-    join(userProfile, 'Desktop'),
-    join(userProfile, 'Downloads'),
-    join(userProfile, 'OneDrive', 'Documentos'),
-    join(userProfile, 'OneDrive', 'Documentos', 'certificados'),
-    join(userProfile, 'OneDrive', 'Documentos', 'Certificados'),
-    join(userProfile, 'OneDrive', 'Documents'),
-  ];
-
-  const found: string[] = [];
-  for (const dir of searchDirs) {
-    if (!existsSync(dir)) continue;
-    try {
-      const files = readdirSync(dir);
-      for (const f of files) {
-        if (f.toLowerCase().endsWith('.pfx')) {
-          found.push(join(dir, f));
-        }
-      }
-    } catch { /* sem permissão */ }
-  }
-  return found;
+  return subject.split(',')[0] ?? 'Empresa';
 }
 
 export async function openFolderDialog(): Promise<string | null> {
-  const ps = `
-    Add-Type -AssemblyName System.Windows.Forms;
-    $d = New-Object System.Windows.Forms.FolderBrowserDialog;
-    $d.Description = 'Selecione a pasta para salvar as notas NFS-e';
-    $d.ShowNewFolderButton = $true;
-    $result = $d.ShowDialog();
-    if ($result -eq 'OK') { $d.SelectedPath } else { '' }
-  `;
+  const ps = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Selecione a pasta para salvar as notas NFS-e'; $d.ShowNewFolderButton = $true; $r = $d.ShowDialog(); if ($r -eq 'OK') { $d.SelectedPath } else { '' }`;
   try {
-    const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps.replace(/\n\s*/g, ' ')}"`);
+    const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps}"`, { timeout: 120000 });
     const path = stdout.trim();
     return path || null;
   } catch {
     return null;
   }
 }
+
+// Mantido para o /scan (listagem sem seleção)
+export async function scanWindowsCerts(): Promise<Array<{cnpj: string; nome: string; thumbprint: string; validoAte: string}>> {
+  const ps = `Get-ChildItem Cert:\\CurrentUser\\My | Select-Object Thumbprint,Subject,@{N='ValidTo';E={$_.NotAfter.ToString('yyyy-MM-dd')}} | ConvertTo-Json -Compress`;
+  try {
+    const { stdout } = await execAsync(`powershell -NoProfile -Command "${ps}"`);
+    const raw = stdout.trim();
+    if (!raw || raw === 'null') return [];
+    const items = JSON.parse(raw);
+    const arr = Array.isArray(items) ? items : [items];
+    return arr
+      .map((i: Record<string, string>) => {
+        const cnpj = extractCnpj(i.Subject ?? '');
+        if (!cnpj) return null;
+        return { cnpj, nome: extractNome(i.Subject ?? ''), thumbprint: i.Thumbprint ?? '', validoAte: i.ValidTo ?? '' };
+      })
+      .filter(Boolean) as Array<{cnpj: string; nome: string; thumbprint: string; validoAte: string}>;
+  } catch {
+    return [];
+  }
+}
+
+// Suprime aviso de importação não usada
+export type { tmpdir as _tmpdir };
+

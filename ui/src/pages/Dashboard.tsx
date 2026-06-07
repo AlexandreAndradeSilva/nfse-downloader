@@ -53,17 +53,16 @@ export function Dashboard() {
     runSync(cnpj, opts);
   };
 
-  // Fluxo rápido via certificado: salva/atualiza empresa e inicia sync imediatamente
+  // Fluxo rápido via seletor de certificado Windows
   const handleCertSync = async (params: CertSyncParams) => {
     setCertModalOpen(false);
-    // Garante que a empresa está cadastrada (cria ou atualiza com os dados do certificado)
     try {
       const existing = companies.find(c => c.cnpj === params.cnpj);
       const companyData: Omit<Company, 'lastSync'> = {
         cnpj: params.cnpj,
         nome: params.nome,
-        pfxPath: params.pfxPath,
-        pfxPassword: params.pfxPassword,
+        pfxPath: params.tempPfxPath,      // arquivo temp exportado pelo Windows
+        pfxPassword: params.tempPassword,  // senha gerada automaticamente
         outputFolder: params.outputFolder,
         baseUrl: BASE_URL,
         ambiente: 'PRODUCAO',
