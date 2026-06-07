@@ -297,7 +297,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
               padding: '12px 20px',
               background: 'rgba(255,255,255,.05)',
               borderBottom: '1px solid rgba(255,255,255,.07)',
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.8px',
+              fontSize: 12, fontWeight: 700, letterSpacing: '0.8px',
               color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
               textTransform: 'uppercase',
             }}>
@@ -323,9 +323,9 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '130px 1fr 130px 130px',
-                    padding: '11px 20px',
+                    padding: '13px 20px',
                     borderBottom: i < notesPage.items.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none',
-                    fontSize: 12,
+                    fontSize: 14,
                     background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)',
                     transition: '.1s',
                   }}
@@ -334,14 +334,14 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                 >
                   <div style={{
                     color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
-                    fontWeight: 600, fontFamily: 'monospace', fontSize: 11,
+                    fontWeight: 600, fontFamily: 'monospace', fontSize: 13,
                   }}>
                     {note.numeroNFSe || '-'}
                   </div>
                   <div style={{ minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <span style={{
-                        fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4,
+                        fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:4,
                         background: activeTab === 'tomados' ? 'rgba(99,102,241,.25)' : 'rgba(34,197,94,.2)',
                         color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
                         flexShrink: 0,
@@ -353,7 +353,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                       </span>
                     </div>
                   </div>
-                  <div style={{ textAlign:'center', color:'rgba(255,255,255,.5)', fontFamily:'monospace', fontSize:11 }}>
+                  <div style={{ textAlign:'center', color:'rgba(255,255,255,.5)', fontFamily:'monospace', fontSize:13 }}>
                     {note.dataEmissao}
                   </div>
                   <div style={{ textAlign:'right', fontWeight:600, color:'rgba(255,255,255,.8)' }}>
