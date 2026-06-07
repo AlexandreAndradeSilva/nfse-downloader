@@ -22,16 +22,14 @@ Add-Type -AssemblyName System.Security;
 Add-Type -AssemblyName System.Windows.Forms;
 $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My','CurrentUser');
 $store.Open('ReadOnly');
-$icpCerts = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection;
-foreach ($c in $store.Certificates) { if ($c.Subject -match '\b\d{14}\b') { $icpCerts.Add($c) | Out-Null } }
-$store.Close();
-if ($icpCerts.Count -eq 0) { Write-Output '{\"empty\":true}'; exit 0 }
+if ($store.Certificates.Count -eq 0) { $store.Close(); Write-Output '{\"empty\":true}'; exit 0 }
 $selected = [System.Security.Cryptography.X509Certificates.X509Certificate2UI]::SelectFromCollection(
-  $icpCerts,
+  $store.Certificates,
   'Certificado NFS-e',
-  'Selecione o certificado digital ICP-Brasil para acessar o Portal Nacional NFS-e',
+  'Selecione o certificado digital para acessar o Portal Nacional NFS-e',
   [System.Security.Cryptography.X509Certificates.X509SelectionFlag]::SingleSelection
 );
+$store.Close();
 if ($selected -eq $null -or $selected.Count -eq 0) { Write-Output '{}'; exit 0 }
 $cert = $selected[0];
 $subject = $cert.Subject;
@@ -65,12 +63,15 @@ try {
   }
 
   if (data.empty) {
-    throw new Error('Nenhum certificado ICP-Brasil com CNPJ encontrado no repositório do Windows.\n\nUse o botão "+ Cadastro manual" para informar o arquivo .pfx manualmente.');
+    throw new Error('Nenhum certificado encontrado no repositório Pessoal do Windows.\n\nUse o botão "+ Cadastro manual" para informar o arquivo .pfx manualmente.');
   }
 
   const subject = String(data.subject ?? '');
   const cnpj = extractCnpj(subject);
-  if (!cnpj) throw new Error('Certificado selecionado não possui CNPJ. Selecione um certificado ICP-Brasil tipo CNPJ.');
+  if (!cnpj) {
+    // Debug: mostra o subject para diagnóstico
+    throw new Error(`Certificado selecionado não possui CNPJ reconhecível.\n\nSubject: ${subject}\n\nSelecione um certificado ICP-Brasil tipo CNPJ (emitido para pessoa jurídica).`);
+  }
 
   const nome = extractNome(subject);
 
@@ -117,8 +118,19 @@ export function cleanupTempCert(tempPfxPath: string): void {
 }
 
 function extractCnpj(subject: string): string | null {
-  const match = subject.match(/\b(\d{14})\b/);
-  return match ? match[1] : null;
+  // 1. CNPJ sem formatação: 14 dígitos seguidos
+  const plain = subject.match(/\b(\d{14})\b/);
+  if (plain) return plain[1];
+
+  // 2. CNPJ formatado: XX.XXX.XXX/XXXX-XX
+  const formatted = subject.match(/(\d{2})[.\s]?(\d{3})[.\s]?(\d{3})[/\s]?(\d{4})[-\s]?(\d{2})/);
+  if (formatted) return formatted.slice(1).join('');
+
+  // 3. Padrão ICP-Brasil OID: OID.2.16.76.1.3.3=CNPJ ou serialNumber contém CNPJ
+  const oid = subject.match(/(?:OID\.2\.16\.76\.1\.3\.3|serialNumber)[=\s]+(\d+)/i);
+  if (oid) return oid[1].padStart(14, '0');
+
+  return null;
 }
 
 function extractNome(subject: string): string {
