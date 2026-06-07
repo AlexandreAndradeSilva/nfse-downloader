@@ -39,6 +39,7 @@ export interface DanfseData {
   // Tributação Federal
   vPIS: string;
   vCOFINS: string;
+  cstPisCofins: string;
   vCSLL: string;
   vCP: string;
   vIRRF: string;
@@ -81,8 +82,31 @@ function fmtFone(v: string): string {
   return v;
 }
 
+const TRIB_ISSQN: Record<string, string> = {
+  '1': 'Tributável', '2': 'Fora do Município', '3': 'Imunidade',
+  '4': 'Exportação de Serviços', '5': 'Não Incidência', '6': 'Diferimento',
+};
+
+const TP_RET_ISSQN: Record<string, string> = {
+  '1': 'Retido', '2': 'Não Retido', '3': 'Não Incide ISSQN',
+};
+
+const CST_PISCOFINS: Record<string, string> = {
+  '01': '01 - PIS/COFINS Retidos na Fonte',
+  '02': '02 - PIS/COFINS Não Retidos',
+  '03': '03 - PIS/COFINS Retidos (Alíquota Zero)',
+  '04': '04 - Não Incidência',
+  '05': '05 - Suspensão',
+  '06': '06 - Alíquota Zero',
+  '07': '07 - Isenção',
+  '08': '08 - Sem Incidência',
+  '09': '09 - Suspensão',
+};
+
 export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
-  const retISSQN = d.tpRetISSQN === '1' ? 'Retido' : 'Não Retido';
+  const retISSQN = TP_RET_ISSQN[d.tpRetISSQN] ?? (d.tpRetISSQN ? `${d.tpRetISSQN}` : 'Não Retido');
+  const tribISSQNDesc = TRIB_ISSQN[d.tribISSQN] ?? (d.tribISSQN || '-');
+  const cstDesc = CST_PISCOFINS[d.cstPisCofins] ?? (d.cstPisCofins ? `${d.cstPisCofins} - PIS/COFINS` : '-');
   const simpNac = d.emitSimplesNac === '1' ? 'Simples Nacional' : d.emitSimplesNac === '2' ? 'Simples Nacional - Excesso' : 'Não optante';
 
   return `<!DOCTYPE html>
@@ -303,7 +327,7 @@ export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
   <tr>
     <td style="width:25%">
       <span class="lbl">Tributação do ISSQN</span>
-      <span class="val">${d.tribISSQN === '1' ? 'Tributável' : fmt(d.tribISSQN)}</span>
+      <span class="val">${tribISSQNDesc}</span>
     </td>
     <td style="width:25%">
       <span class="lbl">País Resultado da Prestação do Serviço</span>
@@ -343,13 +367,13 @@ export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
   <tr><td colspan="4" class="sec">TRIBUTAÇÃO FEDERAL</td></tr>
   <tr>
     <td style="width:25%"><span class="lbl">IRRF</span><span class="val">${fmtMoeda(d.vIRRF)}</span></td>
-    <td style="width:25%"><span class="lbl">CP</span><span class="val">${fmtMoeda(d.vCP)}</span></td>
-    <td style="width:25%"><span class="lbl">CSLL</span><span class="val">${fmtMoeda(d.vCSLL)}</span></td>
-    <td style="width:25%"></td>
+    <td style="width:25%"><span class="lbl">Contribuição Previdenciária - Retida</span><span class="val">${fmtMoeda(d.vCP)}</span></td>
+    <td style="width:25%"><span class="lbl">Contribuições Sociais - Retidas (CSLL)</span><span class="val">${fmtMoeda(d.vCSLL)}</span></td>
+    <td style="width:25%"><span class="lbl">Descrição Contrib. Sociais - Retidas</span><span class="val">${cstDesc}</span></td>
   </tr>
   <tr>
-    <td><span class="lbl">PIS</span><span class="val">${fmtMoeda(d.vPIS)}</span></td>
-    <td><span class="lbl">COFINS</span><span class="val">${fmtMoeda(d.vCOFINS)}</span></td>
+    <td><span class="lbl">PIS - Débito Apuração Própria</span><span class="val">${fmtMoeda(d.vPIS)}</span></td>
+    <td><span class="lbl">COFINS - Débito Apuração Própria</span><span class="val">${fmtMoeda(d.vCOFINS)}</span></td>
     <td><span class="lbl">Retenção do PIS/COFINS</span><span class="val">-</span></td>
     <td style="background:#f5f5f5"><span class="lbl"><strong>TOTAL TRIBUTAÇÃO FEDERAL</strong></span><span class="val">${fmtMoeda(d.vTotTribFed)}</span></td>
   </tr>

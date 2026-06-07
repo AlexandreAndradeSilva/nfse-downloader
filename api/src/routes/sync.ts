@@ -27,9 +27,11 @@ syncRouter.get('/:cnpj', async (req, res) => {
   const { dataInicio, dataFim, gerarPdf } = req.query as Record<string, string>;
   const options: SyncOptions = {
     gerarPdf: gerarPdf === 'true',
+    // Usa horário de Brasília (UTC-3) para evitar que notas do final do dia anterior
+    // passem pelo filtro devido à conversão UTC
     dateRange: (dataInicio || dataFim) ? {
-      dataInicio: dataInicio ? new Date(dataInicio) : undefined,
-      dataFim: dataFim ? new Date(dataFim + 'T23:59:59') : undefined,
+      dataInicio: dataInicio ? new Date(dataInicio + 'T00:00:00-03:00') : undefined,
+      dataFim: dataFim ? new Date(dataFim + 'T23:59:59-03:00') : undefined,
     } : undefined,
   };
 

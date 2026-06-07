@@ -116,6 +116,7 @@ function extractDanfseData(xmlStr: string): DanfseData {
     // Tributação federal
     vPIS: s(piscofins.vPis),
     vCOFINS: s(piscofins.vCofins),
+    cstPisCofins: s(piscofins.CST),
     vCSLL: s(tribFed.vRetCSLL),
     vCP: s(tribFed.vCP),
     vIRRF: s(tribFed.vIRRF),
