@@ -21,6 +21,10 @@ export default function App() {
   const [certModalOpen, setCertModalOpen] = useState(false);
   const [syncModalCnpj, setSyncModalCnpj] = useState<string | null>(null);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  // CNPJ da empresa que está sendo (ou foi) sincronizada — controla qual empresa o Dashboard exibe
+  const [activeCnpj, setActiveCnpj] = useState<string | null>(null);
+  // Incrementado após cada sync para forçar recarregamento das stats
+  const [statsRefreshKey, setStatsRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     const data = await listCompanies();
@@ -31,12 +35,15 @@ export default function App() {
 
   const runSync = useCallback((cnpj: string, opts: SyncOptions) => {
     setSyncing(prev => ({ ...prev, [cnpj]: true }));
+    setActiveCnpj(cnpj);        // Dashboard muda imediatamente para esta empresa
+    setPage('dashboard');        // Volta para o dashboard ao iniciar sync
     startSync(
       cnpj,
       opts,
       () => {},
       () => {
         setSyncing(prev => ({ ...prev, [cnpj]: false }));
+        setStatsRefreshKey(k => k + 1); // força recarregamento das stats
         load();
       }
     );
@@ -93,7 +100,12 @@ export default function App() {
 
       {/* Ambas as páginas ficam montadas — display:none evita o reset de estado ao trocar de aba */}
       <div style={{ display: page === 'dashboard' ? 'contents' : 'none' }}>
-        <Dashboard companies={companies} />
+        <Dashboard
+          companies={companies}
+          activeCnpj={activeCnpj}
+          refreshKey={statsRefreshKey}
+          syncing={syncing}
+        />
       </div>
       <div style={{ display: page === 'empresas' ? 'contents' : 'none' }}>
         <Empresas

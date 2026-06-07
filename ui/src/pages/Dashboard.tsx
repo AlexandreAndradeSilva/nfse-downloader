@@ -4,6 +4,9 @@ import type { Company, StatsResult } from '../types';
 
 interface Props {
   companies: Company[];
+  activeCnpj?: string | null;
+  refreshKey?: number;
+  syncing?: Record<string, boolean>;
 }
 
 function fmtBRL(v: number): string {
@@ -20,12 +23,15 @@ function fmtCnpj(v: string) {
   return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
-export function Dashboard({ companies }: Props) {
+export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props) {
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
+  // Empresa ativa: prioridade para a que está sendo sincronizada,
+  // senão a mais recentemente sincronizada
   const activeCompany: Company | null = companies.length > 0
-    ? [...companies].sort((a, b) => (b.lastSync ?? '').localeCompare(a.lastSync ?? ''))[0]
+    ? (companies.find(c => c.cnpj === activeCnpj) ??
+       [...companies].sort((a, b) => (b.lastSync ?? '').localeCompare(a.lastSync ?? ''))[0])
     : null;
 
   const downloadExcel = (tipo: 'tomados' | 'prestados') => {
@@ -45,7 +51,7 @@ export function Dashboard({ companies }: Props) {
       setStats(s);
     } catch { setStats(null); }
     finally { setStatsLoading(false); }
-  }, [activeCompany?.cnpj]);
+  }, [activeCompany?.cnpj, refreshKey]); // refreshKey força reload após sync
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
@@ -81,7 +87,19 @@ export function Dashboard({ companies }: Props) {
               position:'relative', overflow:'hidden',
             }}>
               <div style={{ position:'absolute', top:-30, right:-30, width:120, height:120, background:'radial-gradient(circle,rgba(99,102,241,.2),transparent 70%)', borderRadius:'50%' }} />
-              <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Empresa Ativa</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Empresa Ativa</div>
+                {activeCompany && syncing?.[activeCompany.cnpj] && (
+                  <div style={{
+                    display:'flex', alignItems:'center', gap:5,
+                    background:'rgba(251,191,36,.15)', border:'1px solid rgba(251,191,36,.3)',
+                    borderRadius:20, padding:'2px 10px', fontSize:10, color:'#fbbf24',
+                  }}>
+                    <span style={{ animation:'spin 1s linear infinite', display:'inline-block' }}>⟳</span>
+                    Sincronizando...
+                  </div>
+                )}
+              </div>
               <div style={{ fontSize:16, fontWeight:700, color:'white', lineHeight:1.3 }}>{activeCompany?.nome}</div>
               <div style={{ fontSize:12, color:'rgba(255,255,255,.4)' }}>
                 {activeCompany ? fmtCnpj(activeCompany.cnpj) : ''} · Produção
