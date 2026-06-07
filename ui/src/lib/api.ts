@@ -59,6 +59,33 @@ export async function deleteCompany(cnpj: string): Promise<void> {
   await fetch(`/api/companies/${cnpj}`, { method: 'DELETE' });
 }
 
+export interface NoteItem {
+  numeroNFSe: string;
+  cnpj: string;
+  nome: string;
+  dataEmissao: string;
+  valorServico: number;
+  periodo: string;
+}
+
+export interface NotesPage {
+  items: NoteItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+  limit: number;
+}
+
+export async function fetchNotes(
+  cnpj: string,
+  tipo: 'tomados' | 'prestados',
+  page = 1
+): Promise<NotesPage> {
+  const res = await fetch(`/api/notes/${cnpj}?tipo=${tipo}&page=${page}&limit=10`);
+  if (!res.ok) throw new Error('Erro ao buscar notas');
+  return res.json();
+}
+
 export async function fetchStats(cnpj: string): Promise<StatsResult> {
   const res = await fetch(`/api/stats/${cnpj}`);
   if (!res.ok) throw new Error('Erro ao buscar estatísticas');

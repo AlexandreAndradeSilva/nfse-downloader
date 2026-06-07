@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchStats } from '../lib/api';
+import { fetchStats, fetchNotes } from '../lib/api';
 import type { Company, StatsResult } from '../types';
+import type { NoteItem, NotesPage } from '../lib/api';
 
 interface Props {
   companies: Company[];
@@ -26,6 +27,10 @@ function fmtCnpj(v: string) {
 export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props) {
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tomados' | 'prestados'>('tomados');
+  const [notesPage, setNotesPage] = useState<NotesPage | null>(null);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Empresa ativa: prioridade para a que está sendo sincronizada,
   // senão a mais recentemente sincronizada
@@ -51,9 +56,21 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
       setStats(s);
     } catch { setStats(null); }
     finally { setStatsLoading(false); }
-  }, [activeCompany?.cnpj, refreshKey]); // refreshKey força reload após sync
+  }, [activeCompany?.cnpj, refreshKey]);
+
+  const loadNotes = useCallback(async (page: number) => {
+    if (!activeCompany) { setNotesPage(null); return; }
+    setNotesLoading(true);
+    try {
+      const p = await fetchNotes(activeCompany.cnpj, activeTab, page);
+      setNotesPage(p);
+      setCurrentPage(page);
+    } catch { setNotesPage(null); }
+    finally { setNotesLoading(false); }
+  }, [activeCompany?.cnpj, activeTab, refreshKey]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { setCurrentPage(1); loadNotes(1); }, [loadNotes]);
 
   const breakdown = (tipo: 'tomados' | 'prestados') => [
     { k: 'ISS Retido',    v: stats?.[tipo].issRetido ?? 0 },
@@ -119,14 +136,21 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
               </div>
             </div>
 
-            {/* Card Tomadas */}
-            <div style={{
-              background:'rgba(99,102,241,.12)', border:'1px solid rgba(99,102,241,.2)',
-              borderRadius:16, padding:24, display:'flex', flexDirection:'column', justifyContent:'space-between',
-              position:'relative', overflow:'hidden',
-            }}>
+            {/* Card Tomadas — clicável */}
+            <div
+              onClick={() => setActiveTab('tomados')}
+              style={{
+                background: activeTab === 'tomados' ? 'rgba(99,102,241,.22)' : 'rgba(99,102,241,.10)',
+                border: activeTab === 'tomados' ? '2px solid rgba(99,102,241,.7)' : '1px solid rgba(99,102,241,.2)',
+                borderRadius:16, padding:24, display:'flex', flexDirection:'column', justifyContent:'space-between',
+                position:'relative', overflow:'hidden', cursor:'pointer', transition:'.2s',
+              }}
+            >
               <div style={{ position:'absolute', bottom:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'radial-gradient(circle,rgba(99,102,241,.15),transparent 70%)' }} />
-              <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Notas Tomadas</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.5)', textTransform:'uppercase' }}>Notas Tomadas</div>
+                {activeTab === 'tomados' && <div style={{ fontSize:9, color:'#a5b4fc', background:'rgba(99,102,241,.2)', padding:'2px 8px', borderRadius:10 }}>● ativo</div>}
+              </div>
               <div style={{ fontSize:56, fontWeight:900, color:'#a5b4fc', lineHeight:1, margin:'10px 0 4px' }}>
                 {stats?.tomados.count ?? '—'}
               </div>
@@ -136,14 +160,21 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
               </div>
             </div>
 
-            {/* Card Prestadas */}
-            <div style={{
-              background:'rgba(34,197,94,.08)', border:'1px solid rgba(34,197,94,.18)',
-              borderRadius:16, padding:24, display:'flex', flexDirection:'column', justifyContent:'space-between',
-              position:'relative', overflow:'hidden',
-            }}>
+            {/* Card Prestadas — clicável */}
+            <div
+              onClick={() => setActiveTab('prestados')}
+              style={{
+                background: activeTab === 'prestados' ? 'rgba(34,197,94,.16)' : 'rgba(34,197,94,.07)',
+                border: activeTab === 'prestados' ? '2px solid rgba(34,197,94,.6)' : '1px solid rgba(34,197,94,.18)',
+                borderRadius:16, padding:24, display:'flex', flexDirection:'column', justifyContent:'space-between',
+                position:'relative', overflow:'hidden', cursor:'pointer', transition:'.2s',
+              }}
+            >
               <div style={{ position:'absolute', bottom:-20, right:-20, width:100, height:100, borderRadius:'50%', background:'radial-gradient(circle,rgba(34,197,94,.12),transparent 70%)' }} />
-              <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.35)', textTransform:'uppercase' }}>Notas Prestadas</div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <div style={{ fontSize:10, letterSpacing:'1.5px', color:'rgba(255,255,255,.5)', textTransform:'uppercase' }}>Notas Prestadas</div>
+                {activeTab === 'prestados' && <div style={{ fontSize:9, color:'#86efac', background:'rgba(34,197,94,.15)', padding:'2px 8px', borderRadius:10 }}>● ativo</div>}
+              </div>
               <div style={{ fontSize:56, fontWeight:900, color:'#86efac', lineHeight:1, margin:'10px 0 4px' }}>
                 {stats?.prestados.count ?? '—'}
               </div>
@@ -250,8 +281,158 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
             </div>
 
           </div>
+
+          {/* Tabela de notas */}
+          <div style={{
+            marginTop: 18,
+            background: 'rgba(255,255,255,.03)',
+            border: '1px solid rgba(255,255,255,.08)',
+            borderRadius: 16,
+            overflow: 'hidden',
+          }}>
+            {/* Cabeçalho da tabela */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '130px 1fr 130px 130px',
+              padding: '12px 20px',
+              background: 'rgba(255,255,255,.05)',
+              borderBottom: '1px solid rgba(255,255,255,.07)',
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.8px',
+              color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
+              textTransform: 'uppercase',
+            }}>
+              <div>Nº NFS-e</div>
+              <div>{activeTab === 'tomados' ? 'Emitida por' : 'Emitida para'}</div>
+              <div style={{ textAlign:'center' }}>Data Emissão</div>
+              <div style={{ textAlign:'right' }}>Preço Serviço</div>
+            </div>
+
+            {/* Linhas */}
+            {notesLoading ? (
+              <div style={{ padding:32, textAlign:'center', color:'rgba(255,255,255,.25)', fontSize:13 }}>
+                Carregando...
+              </div>
+            ) : !notesPage || notesPage.items.length === 0 ? (
+              <div style={{ padding:32, textAlign:'center', color:'rgba(255,255,255,.2)', fontSize:13 }}>
+                Nenhuma nota encontrada
+              </div>
+            ) : (
+              notesPage.items.map((note, i) => (
+                <div
+                  key={`${note.numeroNFSe}-${i}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '130px 1fr 130px 130px',
+                    padding: '11px 20px',
+                    borderBottom: i < notesPage.items.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none',
+                    fontSize: 12,
+                    background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)',
+                    transition: '.1s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,.06)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)')}
+                >
+                  <div style={{
+                    color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
+                    fontWeight: 600, fontFamily: 'monospace', fontSize: 11,
+                  }}>
+                    {note.numeroNFSe || '-'}
+                  </div>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{
+                        fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4,
+                        background: activeTab === 'tomados' ? 'rgba(99,102,241,.25)' : 'rgba(34,197,94,.2)',
+                        color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
+                        flexShrink: 0,
+                      }}>
+                        {activeTab === 'tomados' ? 'T' : 'P'}
+                      </span>
+                      <span style={{ color:'rgba(255,255,255,.7)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                        {note.cnpj} - {note.nome}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign:'center', color:'rgba(255,255,255,.5)', fontFamily:'monospace', fontSize:11 }}>
+                    {note.dataEmissao}
+                  </div>
+                  <div style={{ textAlign:'right', fontWeight:600, color:'rgba(255,255,255,.8)' }}>
+                    {note.valorServico.toLocaleString('pt-BR', { style:'currency', currency:'BRL' })}
+                  </div>
+                </div>
+              ))
+            )}
+
+            {/* Paginação */}
+            {notesPage && notesPage.totalPages > 1 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 20px',
+                borderTop: '1px solid rgba(255,255,255,.07)',
+                fontSize: 12, color: 'rgba(255,255,255,.4)',
+              }}>
+                <span>Total de {notesPage.total} registros</span>
+                <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                  <button
+                    onClick={() => loadNotes(1)}
+                    disabled={currentPage === 1}
+                    style={{ ...paginBtn, opacity: currentPage === 1 ? 0.3 : 1 }}
+                  >«</button>
+                  <button
+                    onClick={() => loadNotes(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    style={{ ...paginBtn, opacity: currentPage === 1 ? 0.3 : 1 }}
+                  >‹</button>
+                  {Array.from({ length: Math.min(5, notesPage.totalPages) }, (_, i) => {
+                    const start = Math.max(1, Math.min(currentPage - 2, notesPage.totalPages - 4));
+                    const p = start + i;
+                    if (p > notesPage.totalPages) return null;
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => loadNotes(p)}
+                        style={{
+                          ...paginBtn,
+                          background: p === currentPage ? 'rgba(99,102,241,.4)' : 'transparent',
+                          color: p === currentPage ? 'white' : 'rgba(255,255,255,.5)',
+                          fontWeight: p === currentPage ? 700 : 400,
+                        }}
+                      >{p}</button>
+                    );
+                  })}
+                  <button
+                    onClick={() => loadNotes(currentPage + 1)}
+                    disabled={currentPage === notesPage.totalPages}
+                    style={{ ...paginBtn, opacity: currentPage === notesPage.totalPages ? 0.3 : 1 }}
+                  >›</button>
+                  <button
+                    onClick={() => loadNotes(notesPage.totalPages)}
+                    disabled={currentPage === notesPage.totalPages}
+                    style={{ ...paginBtn, opacity: currentPage === notesPage.totalPages ? 0.3 : 1 }}
+                  >»</button>
+                </div>
+              </div>
+            )}
+            {notesPage && notesPage.totalPages <= 1 && notesPage.total > 0 && (
+              <div style={{ padding:'10px 20px', borderTop:'1px solid rgba(255,255,255,.07)', fontSize:12, color:'rgba(255,255,255,.3)', textAlign:'right' }}>
+                Total de {notesPage.total} {notesPage.total === 1 ? 'registro' : 'registros'}
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
   );
 }
+
+const paginBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: '1px solid rgba(255,255,255,.1)',
+  color: 'rgba(255,255,255,.6)',
+  width: 28, height: 28,
+  borderRadius: 6,
+  fontSize: 12,
+  cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: 0,
+};

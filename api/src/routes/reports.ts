@@ -13,6 +13,13 @@ const parser = new XMLParser({
   removeNSPrefix: true,
 });
 
+function fmtDateBR(iso: string): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('pt-BR');
+}
+
 function n(v: unknown): number {
   const num = parseFloat(String(v ?? '0'));
   return isNaN(num) ? 0 : num;
@@ -89,7 +96,7 @@ function parseXmlToRow(xmlStr: string, tipo: string, periodo: string): NoteRow |
       periodo,
       numeroNFSe: s(inf.nNFSe),
       chaveAcesso,
-      dataEmissao: s(dps.dhEmi || inf.dhProc),
+      dataEmissao: fmtDateBR(s(dps.dhEmi || inf.dhProc)),
       competencia: s(dps.dCompet),
       prestadorCnpj: s(emit.CNPJ).replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'),
       prestadorNome: s(emit.xNome),
