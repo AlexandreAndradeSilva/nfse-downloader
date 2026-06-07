@@ -106,7 +106,9 @@ function extractDataEmissao(dps: Record<string, unknown>, infNFSe: Record<string
 
 function extractCompetencia(infNFSe: Record<string, unknown>): string {
   const dps = (infNFSe?.DPS as Record<string, unknown>)?.infDPS as Record<string, unknown>;
-  const raw = String(dps?.dCompet ?? infNFSe?.dCompet ?? infNFSe?.dtEmissao ?? new Date().toISOString());
+  // Prioridade: dhEmi (data de emissão) > dhProc (data de processamento) > dCompet (competência do serviço)
+  // Nota: dCompet pode ser mês anterior à emissão (serviço prestado em maio, emitido em junho)
+  const raw = String(dps?.dhEmi ?? infNFSe?.dhProc ?? dps?.dCompet ?? new Date().toISOString());
   const match = raw.match(/^(\d{4})-(\d{2})/);
   if (match) return `${match[2]}${match[1]}`;
   return `${String(new Date().getMonth() + 1).padStart(2, '0')}${new Date().getFullYear()}`;
