@@ -1,6 +1,10 @@
 import type { Company, AdnDistribuicaoResponse } from '../types.js';
 import { decodeAndSave, type DateRange } from './xml-saver.js';
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Delay entre chamadas à API ADN para evitar rate limiting (429)
+const DELAY_ENTRE_REQUESTS_MS = 400;
+
 export interface SyncOptions {
   dateRange?: DateRange;
   gerarPdf: boolean;
@@ -32,6 +36,8 @@ export async function runSync(
   const MAX_CONSECUTIVE_ERRORS = 3;
 
   while (true) {
+    await sleep(DELAY_ENTRE_REQUESTS_MS);
+
     let response: AdnDistribuicaoResponse;
     try {
       response = await fetchFn(currentNsu, company.cnpj);
