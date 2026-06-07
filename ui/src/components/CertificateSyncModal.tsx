@@ -154,7 +154,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
                     type="password"
                     value={pfxPassword}
                     onChange={e => setPfxPassword(e.target.value)}
-                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm"
+                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
                     placeholder="Senha do certificado"
                     required
                   />
@@ -167,7 +167,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
                     type="text"
                     value={outputFolder}
                     onChange={e => setOutputFolder(e.target.value)}
-                    className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm"
+                    className="flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
                     placeholder="Ex: C:\NFSe"
                     required
                   />
@@ -186,12 +186,12 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Data início</label>
                   <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)}
-                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm" />
+                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Data fim</label>
                   <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)}
-                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm" />
+                    className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900" />
                 </div>
               </div>
               <p className="text-xs text-gray-400">Deixe em branco para baixar todos os documentos disponíveis.</p>

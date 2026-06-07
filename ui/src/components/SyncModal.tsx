@@ -48,7 +48,7 @@ export function SyncModal({ open, companyName, onClose, onSync }: Props) {
               type="date"
               value={dataInicio}
               onChange={e => setDataInicio(e.target.value)}
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm"
+              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
             />
           </div>
           <div>
@@ -60,7 +60,7 @@ export function SyncModal({ open, companyName, onClose, onSync }: Props) {
               type="date"
               value={dataFim}
               onChange={e => setDataFim(e.target.value)}
-              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm"
+              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
             />
           </div>
           <div className="flex items-center gap-2">

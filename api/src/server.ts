@@ -4,6 +4,7 @@ import { companiesRouter } from './routes/companies.js';
 import { syncRouter } from './routes/sync.js';
 import { certificatesRouter } from './routes/certificates.js';
 import { statsRouter } from './routes/stats.js';
+import { reportsRouter } from './routes/reports.js';
 
 const app = express();
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'] }));
@@ -13,6 +14,7 @@ app.use('/api/companies', companiesRouter);
 app.use('/api/sync', syncRouter);
 app.use('/api/certificates', certificatesRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/reports', reportsRouter);
 
 const PORT = 3002;
 app.listen(PORT, () => console.log(`API rodando em http://localhost:${PORT}`));

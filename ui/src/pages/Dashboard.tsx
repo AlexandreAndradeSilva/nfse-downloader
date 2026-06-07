@@ -28,6 +28,15 @@ export function Dashboard({ companies }: Props) {
     ? [...companies].sort((a, b) => (b.lastSync ?? '').localeCompare(a.lastSync ?? ''))[0]
     : null;
 
+  const downloadExcel = (tipo: 'tomados' | 'prestados') => {
+    if (!activeCompany) return;
+    const url = `/api/reports/${activeCompany.cnpj}/excel?tipo=${tipo}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    a.click();
+  };
+
   const loadStats = useCallback(async () => {
     if (!activeCompany) { setStats(null); return; }
     setStatsLoading(true);
@@ -39,6 +48,12 @@ export function Dashboard({ companies }: Props) {
   }, [activeCompany?.cnpj]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
+
+  const breakdown = (tipo: 'tomados' | 'prestados') => [
+    { k: 'ISS Retido',    v: stats?.[tipo].issRetido ?? 0 },
+    { k: 'PIS/COFINS',    v: stats?.[tipo].pisCofins ?? 0 },
+    { k: 'Valor Líquido', v: stats?.[tipo].liquido ?? 0 },
+  ];
 
   return (
     <div style={{
@@ -121,76 +136,101 @@ export function Dashboard({ companies }: Props) {
             </div>
           </div>
 
-          {/* Linha 2: Valores financeiros */}
+          {/* Linha 2: Valores financeiros com botão Excel */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:18 }}>
 
-            {/* Total Tomados */}
-            <div style={{
-              background:'linear-gradient(135deg,rgba(99,102,241,.18),rgba(139,92,246,.12))',
-              border:'1px solid rgba(99,102,241,.3)',
-              borderRadius:16, padding:'26px 28px',
-              display:'flex', alignItems:'center', gap:20,
-              position:'relative', overflow:'hidden',
-            }}>
-              <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(99,102,241,.12),transparent 70%)' }} />
-              <div style={{ width:52, height:52, borderRadius:14, background:'rgba(99,102,241,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📥</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Tomados</div>
-                <div style={{ fontSize:32, fontWeight:900, color:'#c4b5fd', lineHeight:1 }}>
-                  {statsLoading ? '...' : fmtBRL(stats?.tomados.totalServico ?? 0)}
-                </div>
-                <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:5 }}>
-                  {stats?.tomados.count ?? 0} notas · todos os períodos
-                </div>
-              </div>
-              <div style={{ width:1, height:48, borderRadius:1, background:'rgba(99,102,241,.3)', flexShrink:0 }} />
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                {[
-                  { k:'ISS Retido', v: stats?.tomados.issRetido ?? 0 },
-                  { k:'PIS/COFINS', v: stats?.tomados.pisCofins ?? 0 },
-                  { k:'Valor Líquido', v: stats?.tomados.liquido ?? 0 },
-                ].map(row => (
-                  <div key={row.k} style={{ display:'flex', justifyContent:'space-between', gap:16, alignItems:'center' }}>
-                    <span style={{ fontSize:10, color:'rgba(255,255,255,.35)', whiteSpace:'nowrap' }}>{row.k}</span>
-                    <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,.6)' }}>{fmtBRL(row.v)}</span>
+            {/* Coluna Tomados */}
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              <div style={{
+                background:'linear-gradient(135deg,rgba(99,102,241,.18),rgba(139,92,246,.12))',
+                border:'1px solid rgba(99,102,241,.3)',
+                borderRadius:16, padding:'26px 28px',
+                display:'flex', alignItems:'center', gap:20,
+                position:'relative', overflow:'hidden',
+              }}>
+                <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(99,102,241,.12),transparent 70%)' }} />
+                <div style={{ width:52, height:52, borderRadius:14, background:'rgba(99,102,241,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📥</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Tomados</div>
+                  <div style={{ fontSize:32, fontWeight:900, color:'#c4b5fd', lineHeight:1 }}>
+                    {statsLoading ? '...' : fmtBRL(stats?.tomados.totalServico ?? 0)}
                   </div>
-                ))}
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:5 }}>
+                    {stats?.tomados.count ?? 0} notas · todos os períodos
+                  </div>
+                </div>
+                <div style={{ width:1, height:48, borderRadius:1, background:'rgba(99,102,241,.3)', flexShrink:0 }} />
+                <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  {breakdown('tomados').map(row => (
+                    <div key={row.k} style={{ display:'flex', justifyContent:'space-between', gap:16, alignItems:'center' }}>
+                      <span style={{ fontSize:10, color:'rgba(255,255,255,.35)', whiteSpace:'nowrap' }}>{row.k}</span>
+                      <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,.6)' }}>{fmtBRL(row.v)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+              <button
+                onClick={() => downloadExcel('tomados')}
+                style={{
+                  background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)',
+                  color: '#a5b4fc', padding: '11px 18px', borderRadius: 10,
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  width: '100%', transition: '.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,.25)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(99,102,241,.15)')}
+              >
+                📊 Gerar Relatório Excel — Tomados
+              </button>
             </div>
 
-            {/* Total Prestados */}
-            <div style={{
-              background:'linear-gradient(135deg,rgba(34,197,94,.12),rgba(16,185,129,.08))',
-              border:'1px solid rgba(34,197,94,.25)',
-              borderRadius:16, padding:'26px 28px',
-              display:'flex', alignItems:'center', gap:20,
-              position:'relative', overflow:'hidden',
-            }}>
-              <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(34,197,94,.1),transparent 70%)' }} />
-              <div style={{ width:52, height:52, borderRadius:14, background:'rgba(34,197,94,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📤</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Prestados</div>
-                <div style={{ fontSize:32, fontWeight:900, color:'#86efac', lineHeight:1 }}>
-                  {statsLoading ? '...' : fmtBRL(stats?.prestados.totalServico ?? 0)}
-                </div>
-                <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:5 }}>
-                  {stats?.prestados.count ?? 0} notas · todos os períodos
-                </div>
-              </div>
-              <div style={{ width:1, height:48, borderRadius:1, background:'rgba(34,197,94,.25)', flexShrink:0 }} />
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                {[
-                  { k:'ISS Retido', v: stats?.prestados.issRetido ?? 0 },
-                  { k:'PIS/COFINS', v: stats?.prestados.pisCofins ?? 0 },
-                  { k:'Valor Líquido', v: stats?.prestados.liquido ?? 0 },
-                ].map(row => (
-                  <div key={row.k} style={{ display:'flex', justifyContent:'space-between', gap:16, alignItems:'center' }}>
-                    <span style={{ fontSize:10, color:'rgba(255,255,255,.35)', whiteSpace:'nowrap' }}>{row.k}</span>
-                    <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,.6)' }}>{fmtBRL(row.v)}</span>
+            {/* Coluna Prestados */}
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              <div style={{
+                background:'linear-gradient(135deg,rgba(34,197,94,.12),rgba(16,185,129,.08))',
+                border:'1px solid rgba(34,197,94,.25)',
+                borderRadius:16, padding:'26px 28px',
+                display:'flex', alignItems:'center', gap:20,
+                position:'relative', overflow:'hidden',
+              }}>
+                <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(34,197,94,.1),transparent 70%)' }} />
+                <div style={{ width:52, height:52, borderRadius:14, background:'rgba(34,197,94,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📤</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Prestados</div>
+                  <div style={{ fontSize:32, fontWeight:900, color:'#86efac', lineHeight:1 }}>
+                    {statsLoading ? '...' : fmtBRL(stats?.prestados.totalServico ?? 0)}
                   </div>
-                ))}
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,.3)', marginTop:5 }}>
+                    {stats?.prestados.count ?? 0} notas · todos os períodos
+                  </div>
+                </div>
+                <div style={{ width:1, height:48, borderRadius:1, background:'rgba(34,197,94,.25)', flexShrink:0 }} />
+                <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                  {breakdown('prestados').map(row => (
+                    <div key={row.k} style={{ display:'flex', justifyContent:'space-between', gap:16, alignItems:'center' }}>
+                      <span style={{ fontSize:10, color:'rgba(255,255,255,.35)', whiteSpace:'nowrap' }}>{row.k}</span>
+                      <span style={{ fontSize:12, fontWeight:600, color:'rgba(255,255,255,.6)' }}>{fmtBRL(row.v)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+              <button
+                onClick={() => downloadExcel('prestados')}
+                style={{
+                  background: 'rgba(34,197,94,.12)', border: '1px solid rgba(34,197,94,.28)',
+                  color: '#86efac', padding: '11px 18px', borderRadius: 10,
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  width: '100%', transition: '.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,.22)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(34,197,94,.12)')}
+              >
+                📊 Gerar Relatório Excel — Prestados
+              </button>
             </div>
+
           </div>
         </>
       )}

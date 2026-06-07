@@ -91,11 +91,11 @@ export default function App() {
         onBuscarNotas={() => setCertModalOpen(true)}
       />
 
-      {page === 'dashboard' && (
+      {/* Ambas as páginas ficam montadas — display:none evita o reset de estado ao trocar de aba */}
+      <div style={{ display: page === 'dashboard' ? 'contents' : 'none' }}>
         <Dashboard companies={companies} />
-      )}
-
-      {page === 'empresas' && (
+      </div>
+      <div style={{ display: page === 'empresas' ? 'contents' : 'none' }}>
         <Empresas
           companies={companies}
           syncing={syncing}
@@ -103,7 +103,7 @@ export default function App() {
           onRefresh={load}
           onAddManual={() => { setEditingCompany(null); setAddModalOpen(true); }}
         />
-      )}
+      </div>
 
       <CertificateSyncModal
         open={certModalOpen}
