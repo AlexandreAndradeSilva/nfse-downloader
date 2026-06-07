@@ -58,11 +58,11 @@ export async function decodeAndSave(
     if (dateRange.dataFim && dataEmissao > dateRange.dataFim) return null;
   }
 
-  const cnpjPrestador: string = String(infNFSe?.emit?.CNPJ ?? '');
-  const tipo: 'prestados' | 'tomados' =
-    cnpjPrestador.replace(/\D/g, '') === cnpjEmpresa.replace(/\D/g, '')
-      ? 'prestados'
-      : 'tomados';
+  // XML parser converte CNPJ com zero à esquerda para número (perde o 0)
+  // padStart(14, '0') normaliza ambos antes de comparar
+  const cnpjPrestador = String(infNFSe?.emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
+  const cnpjEmp = cnpjEmpresa.replace(/\D/g, '').padStart(14, '0');
+  const tipo: 'prestados' | 'tomados' = cnpjPrestador === cnpjEmp ? 'prestados' : 'tomados';
 
   const dir = join(outputFolder, nomeEmpresa, competencia, tipo);
   mkdirSync(dir, { recursive: true });
