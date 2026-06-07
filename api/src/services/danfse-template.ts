@@ -39,7 +39,7 @@ export interface DanfseData {
   // Tributação Federal
   vPIS: string;
   vCOFINS: string;
-  cstPisCofins: string;
+  tpRetPisCofins: string;
   vCSLL: string;
   vCP: string;
   vIRRF: string;
@@ -87,26 +87,31 @@ const TRIB_ISSQN: Record<string, string> = {
   '4': 'Exportação de Serviços', '5': 'Não Incidência', '6': 'Diferimento',
 };
 
+// Padrão nacional NFS-e: 1=ISS Não Retido, 2=ISS Retido pelo Tomador
 const TP_RET_ISSQN: Record<string, string> = {
-  '1': 'Retido', '2': 'Não Retido', '3': 'Não Incide ISSQN',
+  '1': 'Não Retido',
+  '2': 'Retido pelo Tomador',
+  '3': 'Não Incide ISSQN',
 };
 
-const CST_PISCOFINS: Record<string, string> = {
-  '01': '01 - PIS/COFINS Retidos na Fonte',
-  '02': '02 - PIS/COFINS Não Retidos',
-  '03': '03 - PIS/COFINS Retidos (Alíquota Zero)',
-  '04': '04 - Não Incidência',
-  '05': '05 - Suspensão',
-  '06': '06 - Alíquota Zero',
-  '07': '07 - Isenção',
-  '08': '08 - Sem Incidência',
-  '09': '09 - Suspensão',
+// tpRetPisCofins — campo dentro de piscofins (DPS.infDPS.valores.trib.tribFed.piscofins)
+const TP_RET_PISCOFINS: Record<string, string> = {
+  '0': '0 - PIS/COFINS/CSLL Não Retidos',
+  '1': '1 - PIS/COFINS Retidos',
+  '2': '2 - PIS/COFINS Não Retidos',
+  '3': '3 - PIS/COFINS/CSLL Retidos',
+  '4': '4 - PIS/COFINS Retidos, CSLL Não Retido',
+  '5': '5 - PIS Retido',
+  '6': '6 - COFINS Retido',
+  '7': '7 - COFINS e CSLL Retidos',
+  '8': '8 - Apenas CSLL Retido',
+  '9': '9 - PIS e CSLL Retidos',
 };
 
 export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
-  const retISSQN = TP_RET_ISSQN[d.tpRetISSQN] ?? (d.tpRetISSQN ? `${d.tpRetISSQN}` : 'Não Retido');
+  const retISSQN = TP_RET_ISSQN[d.tpRetISSQN] ?? (d.tpRetISSQN ? `${d.tpRetISSQN}` : '-');
   const tribISSQNDesc = TRIB_ISSQN[d.tribISSQN] ?? (d.tribISSQN || '-');
-  const cstDesc = CST_PISCOFINS[d.cstPisCofins] ?? (d.cstPisCofins ? `${d.cstPisCofins} - PIS/COFINS` : '-');
+  const retPisCofinsDesc = TP_RET_PISCOFINS[d.tpRetPisCofins] ?? (d.tpRetPisCofins ? `${d.tpRetPisCofins} - PIS/COFINS` : '-');
   const simpNac = d.emitSimplesNac === '1' ? 'Simples Nacional' : d.emitSimplesNac === '2' ? 'Simples Nacional - Excesso' : 'Não optante';
 
   return `<!DOCTYPE html>
@@ -369,7 +374,7 @@ export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
     <td style="width:25%"><span class="lbl">IRRF</span><span class="val">${fmtMoeda(d.vIRRF)}</span></td>
     <td style="width:25%"><span class="lbl">Contribuição Previdenciária - Retida</span><span class="val">${fmtMoeda(d.vCP)}</span></td>
     <td style="width:25%"><span class="lbl">Contribuições Sociais - Retidas (CSLL)</span><span class="val">${fmtMoeda(d.vCSLL)}</span></td>
-    <td style="width:25%"><span class="lbl">Descrição Contrib. Sociais - Retidas</span><span class="val">${cstDesc}</span></td>
+    <td style="width:25%"><span class="lbl">Descrição Contrib. Sociais - Retidas</span><span class="val">${retPisCofinsDesc}</span></td>
   </tr>
   <tr>
     <td><span class="lbl">PIS - Débito Apuração Própria</span><span class="val">${fmtMoeda(d.vPIS)}</span></td>
