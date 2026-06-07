@@ -30,12 +30,22 @@ export interface DanfseData {
   xTribMun: string;
   xDescServ: string;
   xLocPrestacao: string;
-  // Tributação
+  // Tributação ISSQN
   tribISSQN: string;
   tpRetISSQN: string;
   vBC: string;
   pISSQN: string;
   vISSQN: string;
+  // Tributação Federal
+  vPIS: string;
+  vCOFINS: string;
+  vCSLL: string;
+  vCP: string;
+  vIRRF: string;
+  // Totais aproximados
+  vTotTribFed: string;
+  vTotTribEst: string;
+  vTotTribMun: string;
   // Valores
   vServico: string;
   vLiq: string;
@@ -322,7 +332,7 @@ export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
   </tr>
   <tr>
     <td><span class="lbl">BC ISSQN</span><span class="val">${fmtMoeda(d.vBC)}</span></td>
-    <td><span class="lbl">Alíquota Aplicada</span><span class="val">${fmt(d.pISSQN)}</span></td>
+    <td><span class="lbl">Alíquota Aplicada</span><span class="val">${d.pISSQN && d.pISSQN !== '-' ? d.pISSQN + '%' : '-'}</span></td>
     <td><span class="lbl">Retenção do ISSQN</span><span class="val">${retISSQN}</span></td>
     <td><span class="lbl">ISSQN Apurado</span><span class="val">${fmtMoeda(d.vISSQN)}</span></td>
   </tr>
@@ -332,16 +342,16 @@ export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
 <table style="margin-top:1mm; margin-bottom:0">
   <tr><td colspan="4" class="sec">TRIBUTAÇÃO FEDERAL</td></tr>
   <tr>
-    <td style="width:25%"><span class="lbl">IRRF</span><span class="val">-</span></td>
-    <td style="width:25%"><span class="lbl">CP</span><span class="val">-</span></td>
-    <td style="width:25%"><span class="lbl">CSLL</span><span class="val">-</span></td>
+    <td style="width:25%"><span class="lbl">IRRF</span><span class="val">${fmtMoeda(d.vIRRF)}</span></td>
+    <td style="width:25%"><span class="lbl">CP</span><span class="val">${fmtMoeda(d.vCP)}</span></td>
+    <td style="width:25%"><span class="lbl">CSLL</span><span class="val">${fmtMoeda(d.vCSLL)}</span></td>
     <td style="width:25%"></td>
   </tr>
   <tr>
-    <td><span class="lbl">PIS</span><span class="val">-</span></td>
-    <td><span class="lbl">COFINS</span><span class="val">-</span></td>
+    <td><span class="lbl">PIS</span><span class="val">${fmtMoeda(d.vPIS)}</span></td>
+    <td><span class="lbl">COFINS</span><span class="val">${fmtMoeda(d.vCOFINS)}</span></td>
     <td><span class="lbl">Retenção do PIS/COFINS</span><span class="val">-</span></td>
-    <td><span class="lbl"><strong>TOTAL TRIBUTAÇÃO FEDERAL</strong></span><span class="val">-</span></td>
+    <td style="background:#f5f5f5"><span class="lbl"><strong>TOTAL TRIBUTAÇÃO FEDERAL</strong></span><span class="val">${fmtMoeda(d.vTotTribFed)}</span></td>
   </tr>
 </table>
 
@@ -369,9 +379,9 @@ export function buildDanfseHtml(d: DanfseData, logoDataUrl?: string): string {
 <table style="margin-top:1mm; margin-bottom:0">
   <tr><td colspan="3" class="sec-light">TOTAIS APROXIMADOS DOS TRIBUTOS</td></tr>
   <tr>
-    <td style="width:33%; text-align:center"><span class="lbl">Federais</span><span class="val">-</span></td>
-    <td style="width:33%; text-align:center"><span class="lbl">Estaduais</span><span class="val">-</span></td>
-    <td style="width:34%; text-align:center"><span class="lbl">Municipais</span><span class="val">-</span></td>
+    <td style="width:33%; text-align:center"><span class="lbl">Federais</span><span class="val">${fmtMoeda(d.vTotTribFed)}</span></td>
+    <td style="width:33%; text-align:center"><span class="lbl">Estaduais</span><span class="val">${fmtMoeda(d.vTotTribEst)}</span></td>
+    <td style="width:34%; text-align:center"><span class="lbl">Municipais</span><span class="val">${fmtMoeda(d.vTotTribMun)}</span></td>
   </tr>
 </table>
 

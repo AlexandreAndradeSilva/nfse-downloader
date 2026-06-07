@@ -36,6 +36,13 @@ function fmtDate(iso: string): string {
     d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+function calcISSQN(vBC: string, pAliq: string): string {
+  const bc = parseFloat(vBC);
+  const aliq = parseFloat(pAliq);
+  if (isNaN(bc) || isNaN(aliq)) return '-';
+  return (bc * aliq / 100).toFixed(2);
+}
+
 function fmtCompetencia(dCompet: string): string {
   if (!dCompet) return '-';
   const [year, month] = dCompet.split('-');
@@ -52,7 +59,11 @@ function extractDanfseData(xmlStr: string): DanfseData {
   const cServ = serv?.cServ ?? {};
   const locPrest = serv?.locPrest ?? {};
   const valoresDps = dps?.valores ?? {};
-  const tribMun = valoresDps?.trib?.tribMun ?? {};
+  const trib = valoresDps?.trib ?? {};
+  const tribMun = (trib as Record<string, unknown>)?.tribMun ?? {} as Record<string, unknown>;
+  const tribFed = (trib as Record<string, unknown>)?.tribFed ?? {} as Record<string, unknown>;
+  const piscofins = (tribFed as Record<string, unknown>)?.piscofins ?? {} as Record<string, unknown>;
+  const totTrib = ((trib as Record<string, unknown>)?.totTrib as Record<string, unknown>)?.vTotTrib ?? {} as Record<string, unknown>;
   const vServPrest = valoresDps?.vServPrest ?? {};
   const valoresNfse = inf?.valores ?? {};
   const emit = inf?.emit ?? {};
@@ -100,8 +111,18 @@ function extractDanfseData(xmlStr: string): DanfseData {
     tribISSQN: s(tribMun.tribISSQN),
     tpRetISSQN: s(tribMun.tpRetISSQN),
     vBC: s(valoresNfse.vBC),
-    pISSQN: '-',
-    vISSQN: '-',
+    pISSQN: s(tribMun.pAliq),
+    vISSQN: calcISSQN(s(valoresNfse.vBC), s(tribMun.pAliq)),
+    // Tributação federal
+    vPIS: s(piscofins.vPis),
+    vCOFINS: s(piscofins.vCofins),
+    vCSLL: s(tribFed.vRetCSLL),
+    vCP: s(tribFed.vCP),
+    vIRRF: s(tribFed.vIRRF),
+    // Totais aproximados
+    vTotTribFed: s(totTrib.vTotTribFed),
+    vTotTribEst: s(totTrib.vTotTribEst),
+    vTotTribMun: s(totTrib.vTotTribMun),
     vServico: s(vServPrest.vServ),
     vLiq: s(valoresNfse.vLiq),
     xMunicipioIncid: s(inf.xLocIncid) || s(inf.xLocEmi),

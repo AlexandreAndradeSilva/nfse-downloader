@@ -42,10 +42,16 @@ syncRouter.get('/:cnpj', async (req, res) => {
     res.write(`data: ${JSON.stringify({ type, ...data as object })}\n\n`);
   };
 
+  // Sync com filtro de data: começa sempre do NSU 0 e NÃO atualiza lastNsu
+  // (permite re-baixar o mesmo período quantas vezes quiser sem afetar o sync incremental)
+  const companyForSync = options.dateRange
+    ? { ...company, lastNsu: 0 }
+    : company;
+
   const filtroMsg = options.dateRange
-    ? ` | Período: ${dataInicio ?? '...'} → ${dataFim ?? '...'}`
-    : ' | Sem filtro de data';
-  send('progress', { message: `Iniciando sync para ${company.nome} (NSU: ${company.lastNsu})${filtroMsg}` });
+    ? ` | Período: ${dataInicio ?? '...'} → ${dataFim ?? '...'} (começa do NSU 0)`
+    : ` | NSU atual: ${company.lastNsu}`;
+  send('progress', { message: `Iniciando sync para ${company.nome}${filtroMsg}` });
 
   try {
     const fetchFn = (nsu: number, cnpjConsulta: string) =>
@@ -54,8 +60,12 @@ syncRouter.get('/:cnpj', async (req, res) => {
         nsu, cnpjConsulta
       );
 
-    const result = await runSync(company, fetchFn, (message) => send('progress', { message }), options);
-    updateLastNsu(cnpj, result.lastNsu);
+    const result = await runSync(companyForSync, fetchFn, (message) => send('progress', { message }), options);
+
+    // Só atualiza o NSU se NÃO houver filtro de data
+    if (!options.dateRange) {
+      updateLastNsu(cnpj, result.lastNsu);
+    }
 
     send('done', {
       message: `Concluído: ${result.prestados} prestados, ${result.tomados} tomados, ${result.pulados} pulados, ${result.errors} erros`,
