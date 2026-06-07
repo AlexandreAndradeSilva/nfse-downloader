@@ -3,14 +3,18 @@ import { CompanyCard } from '../components/CompanyCard';
 import { AddCompanyModal } from '../components/AddCompanyModal';
 import { SyncLogPanel, type LogEntry } from '../components/SyncLogPanel';
 import { SyncModal, type SyncOptions } from '../components/SyncModal';
+import { CertificateSyncModal, type CertSyncParams } from '../components/CertificateSyncModal';
 import { listCompanies, createCompany, updateCompany, deleteCompany, startSync } from '../lib/api';
 import type { Company } from '../types';
+
+const BASE_URL = 'https://adn.nfse.gov.br/contribuintes';
 
 export function Dashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [certModalOpen, setCertModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [syncModalCnpj, setSyncModalCnpj] = useState<string | null>(null);
   const logIdRef = useRef(0);
@@ -29,9 +33,7 @@ export function Dashboard() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
-  const handleSyncStart = (opts: SyncOptions) => {
-    const cnpj = syncModalCnpj!;
-    setSyncModalCnpj(null);
+  const runSync = (cnpj: string, opts: SyncOptions) => {
     setSyncing(prev => ({ ...prev, [cnpj]: true }));
     setLogs([]);
     startSync(
@@ -45,13 +47,52 @@ export function Dashboard() {
     );
   };
 
+  const handleSyncStart = (opts: SyncOptions) => {
+    const cnpj = syncModalCnpj!;
+    setSyncModalCnpj(null);
+    runSync(cnpj, opts);
+  };
+
+  // Fluxo rápido via certificado: salva/atualiza empresa e inicia sync imediatamente
+  const handleCertSync = async (params: CertSyncParams) => {
+    setCertModalOpen(false);
+    // Garante que a empresa está cadastrada (cria ou atualiza com os dados do certificado)
+    try {
+      const existing = companies.find(c => c.cnpj === params.cnpj);
+      const companyData: Omit<Company, 'lastSync'> = {
+        cnpj: params.cnpj,
+        nome: params.nome,
+        pfxPath: params.pfxPath,
+        pfxPassword: params.pfxPassword,
+        outputFolder: params.outputFolder,
+        baseUrl: BASE_URL,
+        ambiente: 'PRODUCAO',
+        lastNsu: existing?.lastNsu ?? 0,
+      };
+      if (existing) {
+        await updateCompany(params.cnpj, companyData);
+      } else {
+        await createCompany(companyData);
+      }
+      await load();
+    } catch (e) {
+      addLog(`[ERRO] Não foi possível salvar a empresa: ${(e as Error).message}`, 'error');
+      return;
+    }
+    runSync(params.cnpj, {
+      dataInicio: params.dataInicio,
+      dataFim: params.dataFim,
+      gerarPdf: params.gerarPdf,
+    });
+  };
+
   const handleSave = async (data: Omit<Company, 'lastSync'>) => {
     if (editingCompany) {
       await updateCompany(data.cnpj, data);
     } else {
       await createCompany(data);
     }
-    setModalOpen(false);
+    setAddModalOpen(false);
     setEditingCompany(null);
     await load();
   };
@@ -68,18 +109,27 @@ export function Dashboard() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">NFS-e Downloader</h1>
-        <button
-          onClick={() => { setEditingCompany(null); setModalOpen(true); }}
-          className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-        >
-          + Empresa
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setCertModalOpen(true)}
+            className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+          >
+            🔍 Buscar Notas
+          </button>
+          <button
+            onClick={() => { setEditingCompany(null); setAddModalOpen(true); }}
+            className="px-4 py-2 rounded border border-gray-300 text-sm font-medium hover:bg-gray-50"
+          >
+            + Cadastro manual
+          </button>
+        </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-6 space-y-6">
         {companies.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
-            Nenhuma empresa cadastrada. Clique em "+ Empresa" para começar.
+            <p className="text-lg mb-2">Clique em <strong>Buscar Notas</strong> para começar.</p>
+            <p className="text-sm">O sistema detecta automaticamente os certificados instalados no Windows.</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -89,7 +139,7 @@ export function Dashboard() {
                 company={c}
                 syncing={!!syncing[c.cnpj]}
                 onSync={(cnpj) => setSyncModalCnpj(cnpj)}
-                onEdit={(company) => { setEditingCompany(company); setModalOpen(true); }}
+                onEdit={(company) => { setEditingCompany(company); setAddModalOpen(true); }}
                 onDelete={handleDelete}
               />
             ))}
@@ -102,9 +152,15 @@ export function Dashboard() {
         </div>
       </main>
 
+      <CertificateSyncModal
+        open={certModalOpen}
+        onClose={() => setCertModalOpen(false)}
+        onSync={handleCertSync}
+      />
+
       <AddCompanyModal
-        open={modalOpen}
-        onClose={() => { setModalOpen(false); setEditingCompany(null); }}
+        open={addModalOpen}
+        onClose={() => { setAddModalOpen(false); setEditingCompany(null); }}
         onSave={handleSave}
         initial={editingCompany}
       />

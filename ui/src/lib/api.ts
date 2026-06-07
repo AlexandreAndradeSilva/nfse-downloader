@@ -4,6 +4,28 @@ import type { SyncOptions } from '../components/SyncModal';
 export type { Company };
 export type { SyncOptions };
 
+export interface CertInfo {
+  thumbprint: string;
+  cnpj: string;
+  nome: string;
+  validoAte: string;
+  pfxPath?: string;
+}
+
+export async function scanCertificates(): Promise<CertInfo[]> {
+  const res = await fetch('/api/certificates/scan');
+  if (!res.ok) throw new Error('Erro ao escanear certificados');
+  return res.json();
+}
+
+export async function browseFolder(): Promise<string | null> {
+  const res = await fetch('/api/certificates/browse-folder');
+  if (res.status === 204) return null;
+  if (!res.ok) throw new Error('Erro ao abrir seletor de pasta');
+  const data = await res.json() as { path: string };
+  return data.path;
+}
+
 export async function listCompanies(): Promise<Company[]> {
   const res = await fetch('/api/companies');
   if (!res.ok) throw new Error('Erro ao listar empresas');
