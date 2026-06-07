@@ -1,4 +1,4 @@
-import type { Company, SyncProgress } from '../types';
+import type { Company, SyncProgress, StatsResult } from '../types';
 import type { SyncOptions } from '../components/SyncModal';
 
 export type { Company };
@@ -57,6 +57,12 @@ export async function updateCompany(cnpj: string, data: Partial<Company>): Promi
 
 export async function deleteCompany(cnpj: string): Promise<void> {
   await fetch(`/api/companies/${cnpj}`, { method: 'DELETE' });
+}
+
+export async function fetchStats(cnpj: string): Promise<StatsResult> {
+  const res = await fetch(`/api/stats/${cnpj}`);
+  if (!res.ok) throw new Error('Erro ao buscar estatísticas');
+  return res.json();
 }
 
 export function startSync(

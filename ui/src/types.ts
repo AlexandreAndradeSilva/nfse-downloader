@@ -18,3 +18,16 @@ export interface SyncProgress {
   errors?: number;
   lastNsu?: number;
 }
+
+export interface FinancialTotals {
+  count: number;
+  totalServico: number;
+  issRetido: number;
+  pisCofins: number;
+  liquido: number;
+}
+
+export interface StatsResult {
+  tomados: FinancialTotals;
+  prestados: FinancialTotals;
+}
