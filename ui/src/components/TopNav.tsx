@@ -1,3 +1,4 @@
+import React from 'react';
 import { supabase } from '../lib/supabase';
 import { IconDashboard, IconBuilding, IconSearch, IconLogout } from './Icons';
 
@@ -14,7 +15,7 @@ export function TopNav({ page, onPageChange, onBuscarNotas }: Props) {
     await supabase.auth.signOut();
   };
 
-  const tabs: { id: Page; label: string; Icon: () => JSX.Element }[] = [
+  const tabs: { id: Page; label: string; Icon: () => React.ReactElement }[] = [
     { id: 'dashboard', label: 'Dashboard', Icon: () => <IconDashboard size={15} /> },
     { id: 'empresas',  label: 'Empresas',  Icon: () => <IconBuilding  size={15} /> },
   ];

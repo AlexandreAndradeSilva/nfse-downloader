@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchStats, fetchNotes } from '../lib/api';
 import type { Company, StatsResult } from '../types';
-import type { NoteItem, NotesPage } from '../lib/api';
-import { IconDownload, IconUpload, IconBarChart, IconPin, IconFile, IconRefresh,
+import type { NotesPage } from '../lib/api';
+import { IconDownload, IconUpload, IconBarChart, IconFile, IconRefresh,
          IconChevronsLeft, IconChevronsRight, IconChevronLeft, IconChevronRight } from '../components/Icons';
 
 interface Props {
