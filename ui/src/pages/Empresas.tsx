@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type { Company } from '../types';
 import { deleteCompany } from '../lib/api';
-import { IconBuilding, IconPlay, IconEdit, IconX, IconRefresh } from '../components/Icons';
+import { IconBuilding, IconPlay, IconX, IconRefresh } from '../components/Icons';
 
 interface Props {
   companies: Company[];
