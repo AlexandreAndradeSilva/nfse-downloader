@@ -4,6 +4,9 @@ import type { SyncOptions } from '../components/SyncModal';
 export type { Company };
 export type { SyncOptions };
 
+// URL base da API — usa VITE_API_URL em produção (ngrok), vazio em dev (proxy Vite)
+const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
 export interface CertInfo {
   thumbprint: string;
   cnpj: string;
@@ -13,13 +16,13 @@ export interface CertInfo {
 }
 
 export async function scanCertificates(): Promise<CertInfo[]> {
-  const res = await fetch('/api/certificates/scan');
+  const res = await fetch(`${API}/api/certificates/scan`);
   if (!res.ok) throw new Error('Erro ao escanear certificados');
   return res.json();
 }
 
 export async function browseFolder(): Promise<string | null> {
-  const res = await fetch('/api/certificates/browse-folder');
+  const res = await fetch(`${API}/api/certificates/browse-folder`);
   if (res.status === 204) return null;
   if (!res.ok) throw new Error('Erro ao abrir seletor de pasta');
   const data = await res.json() as { path: string };
@@ -27,13 +30,13 @@ export async function browseFolder(): Promise<string | null> {
 }
 
 export async function listCompanies(): Promise<Company[]> {
-  const res = await fetch('/api/companies');
+  const res = await fetch(`${API}/api/companies`);
   if (!res.ok) throw new Error('Erro ao listar empresas');
   return res.json();
 }
 
 export async function createCompany(data: Omit<Company, 'lastSync'>): Promise<Company> {
-  const res = await fetch('/api/companies', {
+  const res = await fetch(`${API}/api/companies`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -46,7 +49,7 @@ export async function createCompany(data: Omit<Company, 'lastSync'>): Promise<Co
 }
 
 export async function updateCompany(cnpj: string, data: Partial<Company>): Promise<Company> {
-  const res = await fetch(`/api/companies/${cnpj}`, {
+  const res = await fetch(`${API}/api/companies/${cnpj}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -56,7 +59,7 @@ export async function updateCompany(cnpj: string, data: Partial<Company>): Promi
 }
 
 export async function deleteCompany(cnpj: string): Promise<void> {
-  await fetch(`/api/companies/${cnpj}`, { method: 'DELETE' });
+  await fetch(`${API}/api/companies/${cnpj}`, { method: 'DELETE' });
 }
 
 export interface NoteItem {
@@ -81,13 +84,13 @@ export async function fetchNotes(
   tipo: 'tomados' | 'prestados',
   page = 1
 ): Promise<NotesPage> {
-  const res = await fetch(`/api/notes/${cnpj}?tipo=${tipo}&page=${page}&limit=10`);
+  const res = await fetch(`${API}/api/notes/${cnpj}?tipo=${tipo}&page=${page}&limit=10`);
   if (!res.ok) throw new Error('Erro ao buscar notas');
   return res.json();
 }
 
 export async function fetchStats(cnpj: string): Promise<StatsResult> {
-  const res = await fetch(`/api/stats/${cnpj}`);
+  const res = await fetch(`${API}/api/stats/${cnpj}`);
   if (!res.ok) throw new Error('Erro ao buscar estatísticas');
   return res.json();
 }
@@ -103,7 +106,7 @@ export function startSync(
   if (opts.dataFim) params.set('dataFim', opts.dataFim);
   if (opts.gerarPdf) params.set('gerarPdf', 'true');
   const qs = params.toString();
-  const es = new EventSource(`/api/sync/${cnpj}${qs ? '?' + qs : ''}`);
+  const es = new EventSource(`${API}/api/sync/${cnpj}${qs ? '?' + qs : ''}`);
   es.onmessage = (e) => {
     const data = JSON.parse(e.data as string) as SyncProgress;
     onEvent(data);
