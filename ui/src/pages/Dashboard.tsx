@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { fetchStats, fetchNotes } from '../lib/api';
 import type { Company, StatsResult } from '../types';
 import type { NoteItem, NotesPage } from '../lib/api';
+import { IconDownload, IconUpload, IconBarChart, IconPin, IconFile, IconRefresh,
+         IconChevronsLeft, IconChevronsRight, IconChevronLeft, IconChevronRight } from '../components/Icons';
 
 interface Props {
   companies: Company[];
@@ -86,7 +88,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
     }}>
       {companies.length === 0 ? (
         <div style={{ textAlign:'center', padding:'100px 24px', color:'rgba(255,255,255,.3)' }}>
-          <div style={{ fontSize:56, marginBottom:20 }}>📄</div>
+          <div style={{ marginBottom:20, color:'rgba(255,255,255,.2)' }}><IconFile size={56} /></div>
           <h2 style={{ fontSize:20, fontWeight:700, marginBottom:8, color:'rgba(255,255,255,.6)' }}>
             Nenhuma empresa cadastrada
           </h2>
@@ -112,7 +114,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                     background:'rgba(251,191,36,.15)', border:'1px solid rgba(251,191,36,.3)',
                     borderRadius:20, padding:'2px 10px', fontSize:10, color:'#fbbf24',
                   }}>
-                    <span style={{ animation:'spin 1s linear infinite', display:'inline-block' }}>⟳</span>
+                    <span style={{ animation:'spin 1s linear infinite', display:'inline-flex' }}><IconRefresh size={12} /></span>
                     Sincronizando...
                   </div>
                 )}
@@ -132,7 +134,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                 borderRadius:20, padding:'4px 12px', fontSize:11, color:'#a5b4fc',
                 width:'fit-content', marginTop:4,
               }}>
-                📌 NSU atual: {activeCompany?.lastNsu ?? 0}
+                NSU atual: {activeCompany?.lastNsu ?? 0}
               </div>
             </div>
 
@@ -198,7 +200,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                 position:'relative', overflow:'hidden',
               }}>
                 <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(99,102,241,.12),transparent 70%)' }} />
-                <div style={{ width:52, height:52, borderRadius:14, background:'rgba(99,102,241,.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📥</div>
+                <div style={{ width:52, height:52, borderRadius:14, background:'rgba(99,102,241,.25)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><IconDownload size={22} /></div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Tomados</div>
                   <div style={{ fontSize:32, fontWeight:900, color:'#c4b5fd', lineHeight:1 }}>
@@ -230,7 +232,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,.25)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'rgba(99,102,241,.15)')}
               >
-                📊 Gerar Relatório Excel — Tomados
+                <IconBarChart size={14} /> Gerar Relatório Excel — Tomados
               </button>
             </div>
 
@@ -244,7 +246,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                 position:'relative', overflow:'hidden',
               }}>
                 <div style={{ position:'absolute', right:-40, top:-40, width:160, height:160, borderRadius:'50%', background:'radial-gradient(circle,rgba(34,197,94,.1),transparent 70%)' }} />
-                <div style={{ width:52, height:52, borderRadius:14, background:'rgba(34,197,94,.2)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>📤</div>
+                <div style={{ width:52, height:52, borderRadius:14, background:'rgba(34,197,94,.2)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><IconUpload size={22} /></div>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:11, letterSpacing:'1.2px', color:'rgba(255,255,255,.4)', textTransform:'uppercase', marginBottom:6 }}>Total Serviços Prestados</div>
                   <div style={{ fontSize:32, fontWeight:900, color:'#86efac', lineHeight:1 }}>
@@ -276,7 +278,7 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                 onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,.22)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'rgba(34,197,94,.12)')}
               >
-                📊 Gerar Relatório Excel — Prestados
+                <IconBarChart size={14} /> Gerar Relatório Excel — Prestados
               </button>
             </div>
 
@@ -377,12 +379,12 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                     onClick={() => loadNotes(1)}
                     disabled={currentPage === 1}
                     style={{ ...paginBtn, opacity: currentPage === 1 ? 0.3 : 1 }}
-                  >«</button>
+                  ><IconChevronsLeft /></button>
                   <button
                     onClick={() => loadNotes(currentPage - 1)}
                     disabled={currentPage === 1}
                     style={{ ...paginBtn, opacity: currentPage === 1 ? 0.3 : 1 }}
-                  >‹</button>
+                  ><IconChevronLeft /></button>
                   {Array.from({ length: Math.min(5, notesPage.totalPages) }, (_, i) => {
                     const start = Math.max(1, Math.min(currentPage - 2, notesPage.totalPages - 4));
                     const p = start + i;
@@ -404,12 +406,12 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                     onClick={() => loadNotes(currentPage + 1)}
                     disabled={currentPage === notesPage.totalPages}
                     style={{ ...paginBtn, opacity: currentPage === notesPage.totalPages ? 0.3 : 1 }}
-                  >›</button>
+                  ><IconChevronRight /></button>
                   <button
                     onClick={() => loadNotes(notesPage.totalPages)}
                     disabled={currentPage === notesPage.totalPages}
                     style={{ ...paginBtn, opacity: currentPage === notesPage.totalPages ? 0.3 : 1 }}
-                  >»</button>
+                  ><IconChevronsRight /></button>
                 </div>
               </div>
             )}

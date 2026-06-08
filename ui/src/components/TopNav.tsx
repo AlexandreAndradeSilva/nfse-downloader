@@ -1,3 +1,6 @@
+import { supabase } from '../lib/supabase';
+import { IconDashboard, IconBuilding, IconSearch, IconLogout } from './Icons';
+
 type Page = 'dashboard' | 'empresas';
 
 interface Props {
@@ -7,18 +10,23 @@ interface Props {
 }
 
 export function TopNav({ page, onPageChange, onBuscarNotas }: Props) {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const tabs: { id: Page; label: string; Icon: () => JSX.Element }[] = [
+    { id: 'dashboard', label: 'Dashboard', Icon: () => <IconDashboard size={15} /> },
+    { id: 'empresas',  label: 'Empresas',  Icon: () => <IconBuilding  size={15} /> },
+  ];
+
   return (
     <nav style={{
-      background: 'rgba(0,0,0,.5)',
-      backdropFilter: 'blur(12px)',
+      background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(12px)',
       borderBottom: '1px solid rgba(255,255,255,.08)',
-      padding: '0 28px',
-      display: 'flex',
-      alignItems: 'center',
-      position: 'sticky',
-      top: 0,
-      zIndex: 50,
+      padding: '0 28px', display: 'flex', alignItems: 'center',
+      position: 'sticky', top: 0, zIndex: 50,
     }}>
+      {/* Brand */}
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'14px 0', marginRight:32 }}>
         <div style={{
           width:32, height:32,
@@ -32,44 +40,71 @@ export function TopNav({ page, onPageChange, onBuscarNotas }: Props) {
         </div>
       </div>
 
+      {/* Tabs */}
       <div style={{ display:'flex', alignItems:'stretch', gap:2, flex:1 }}>
-        {([
-          { id: 'dashboard' as Page, label: 'Dashboard', icon: '▣' },
-          { id: 'empresas'  as Page, label: 'Empresas',  icon: '⌂' },
-        ]).map(tab => (
+        {tabs.map(({ id, label, Icon }) => (
           <button
-            key={tab.id}
-            onClick={() => onPageChange(tab.id)}
+            key={id}
+            onClick={() => onPageChange(id)}
             style={{
               padding: '0 20px', height: 56,
               display: 'flex', alignItems: 'center', gap: 7,
               fontSize: 13, fontWeight: 500,
-              color: page === tab.id ? 'white' : 'rgba(255,255,255,.5)',
+              color: page === id ? 'white' : 'rgba(255,255,255,.5)',
               background: 'none', border: 'none',
-              borderBottom: page === tab.id ? '2px solid #6366f1' : '2px solid transparent',
+              borderBottom: page === id ? '2px solid #6366f1' : '2px solid transparent',
               cursor: 'pointer', transition: 'color .15s', whiteSpace: 'nowrap',
             }}
           >
-            <span style={{ fontSize:12 }}>{tab.icon}</span>
-            {tab.label}
+            <Icon />
+            {label}
           </button>
         ))}
       </div>
 
-      <button
-        onClick={onBuscarNotas}
-        style={{
-          marginLeft: 'auto',
-          background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-          border: 'none', color: 'white',
-          padding: '9px 20px', borderRadius: 9,
-          fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          boxShadow: '0 4px 15px rgba(99,102,241,.4)',
-          display: 'flex', alignItems: 'center', gap: 7,
-        }}
-      >
-        🔍 Buscar Notas
-      </button>
+      {/* Actions */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
+        <button
+          onClick={onBuscarNotas}
+          style={{
+            background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+            border: 'none', color: 'white',
+            padding: '9px 20px', borderRadius: 9,
+            fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            boxShadow: '0 4px 15px rgba(99,102,241,.4)',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}
+        >
+          <IconSearch size={15} />
+          Buscar Notas
+        </button>
+
+        <button
+          onClick={handleLogout}
+          title="Sair"
+          style={{
+            background: 'rgba(255,255,255,.06)',
+            border: '1px solid rgba(255,255,255,.1)',
+            color: 'rgba(255,255,255,.6)',
+            padding: '8px 12px', borderRadius: 9,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: 13, transition: '.15s',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget.style.background = 'rgba(239,68,68,.15)');
+            (e.currentTarget.style.color = '#f87171');
+            (e.currentTarget.style.borderColor = 'rgba(239,68,68,.3)');
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget.style.background = 'rgba(255,255,255,.06)');
+            (e.currentTarget.style.color = 'rgba(255,255,255,.6)');
+            (e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)');
+          }}
+        >
+          <IconLogout size={15} />
+          Sair
+        </button>
+      </div>
     </nav>
   );
 }
