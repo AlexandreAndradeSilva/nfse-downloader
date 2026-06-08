@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { browseFolder } from '../lib/api';
+
+const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 import { IconLock, IconFolder, IconX } from './Icons';
 
 export interface CertSyncParams {
@@ -58,7 +60,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
     setErrorMsg('');
 
     // Abre o seletor nativo do Windows imediatamente
-    fetch('/api/certificates/pick')
+    fetch(`${API}/api/certificates/pick`)
       .then(async res => {
         if (res.status === 204) { onClose(); return; } // usuário cancelou
         if (!res.ok) {
