@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { join } from 'path';
 import { pickCertificateFromStore, scanWindowsCerts, openFolderDialog } from '../services/cert-scanner.js';
 
 export const certificatesRouter = Router();
@@ -11,7 +12,10 @@ certificatesRouter.get('/pick', async (_req, res) => {
       res.status(204).end(); // usuário cancelou
       return;
     }
-    res.json(cert);
+    // Sugere pasta padrão para salvar as notas
+    const userProfile = process.env.USERPROFILE ?? process.env.HOME ?? '';
+    const defaultOutputFolder = join(userProfile, 'Documents', 'NFSe');
+    res.json({ ...cert, defaultOutputFolder });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

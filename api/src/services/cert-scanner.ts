@@ -34,12 +34,14 @@ if ($selected -eq $null -or $selected.Count -eq 0) { Write-Output '{}'; exit 0 }
 $cert = $selected[0];
 $subject = $cert.Subject;
 $thumbprint = $cert.Thumbprint;
-$tempPass = [System.Guid]::NewGuid().ToString();
-$tempPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "nfse_" + $thumbprint.Substring(0,8) + ".pfx");
+$certPass = [System.Guid]::NewGuid().ToString();
+$certsDir = [System.IO.Path]::Combine($env:APPDATA, "nfse-downloader", "certs");
+[System.IO.Directory]::CreateDirectory($certsDir) | Out-Null;
+$certPath = [System.IO.Path]::Combine($certsDir, "cert_" + $thumbprint.Substring(0,8) + ".pfx");
 try {
-  $bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $tempPass);
-  [System.IO.File]::WriteAllBytes($tempPath, $bytes);
-  @{subject=$subject;thumbprint=$thumbprint;tempPath=$tempPath;tempPass=$tempPass;exportable=$true} | ConvertTo-Json -Compress
+  $secPass = ConvertTo-SecureString $certPass -AsPlainText -Force;
+  Export-PfxCertificate -Cert $cert -FilePath $certPath -Password $secPass -CryptoAlgorithmOption TripleDES_SHA1 | Out-Null;
+  @{subject=$subject;thumbprint=$thumbprint;certPath=$certPath;certPass=$certPass;exportable=$true} | ConvertTo-Json -Compress
 } catch {
   @{subject=$subject;thumbprint=$thumbprint;exportable=$false} | ConvertTo-Json -Compress
 }
@@ -75,14 +77,15 @@ try {
 
   const nome = extractNome(subject);
 
-  // Certificado exportável — usa o arquivo temporário gerado
+  // Certificado exportável — usa o arquivo permanente gerado em TripleDES_SHA1
+  // (compatível com Node.js, salvo em AppData\Roaming\nfse-downloader\certs\)
   if (data.exportable) {
     return {
       cnpj,
       nome,
       thumbprint: String(data.thumbprint),
-      tempPfxPath: String(data.tempPath),
-      tempPassword: String(data.tempPass),
+      tempPfxPath: String(data.certPath),
+      tempPassword: String(data.certPass),
       needsPassword: false,
     };
   }

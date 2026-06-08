@@ -118,7 +118,7 @@ function extractDanfseData(xmlStr: string): DanfseData {
     vCOFINS: s(piscofins.vCofins),
     tpRetPisCofins: s(piscofins.tpRetPisCofins),
     vCSLL: s(tribFed.vRetCSLL),
-    vCP: s(tribFed.vCP),
+    vCP: s(tribFed.vRetCP),
     vIRRF: s(tribFed.vIRRF),
     // Totais aproximados
     vTotTribFed: s(totTrib.vTotTribFed),
