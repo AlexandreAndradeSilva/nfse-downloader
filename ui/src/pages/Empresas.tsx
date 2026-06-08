@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { Company } from '../types';
 import { deleteCompany } from '../lib/api';
+import { IconBuilding, IconPlay, IconEdit, IconX, IconRefresh } from '../components/Icons';
 
 interface Props {
   companies: Company[];
@@ -68,7 +69,7 @@ export function Empresas({ companies, syncing, onSync, onRefresh, onAddManual }:
 
       {companies.length === 0 ? (
         <div style={{ textAlign:'center', padding:'80px 24px', color:'rgba(255,255,255,.3)' }}>
-          <div style={{ fontSize:48, marginBottom:16 }}>🏢</div>
+          <div style={{ marginBottom:16, color:'rgba(255,255,255,.2)' }}><IconBuilding size={48} /></div>
           <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Nenhuma empresa cadastrada</div>
           <div style={{ fontSize:13 }}>Clique em "Buscar Notas" para começar.</div>
         </div>
@@ -140,7 +141,9 @@ export function Empresas({ companies, syncing, onSync, onRefresh, onAddManual }:
                     boxShadow: syncing[c.cnpj] ? 'none' : '0 3px 10px rgba(99,102,241,.3)',
                   }}
                 >
-                  {syncing[c.cnpj] ? '⏳ Sync...' : '▶ Sync'}
+                  {syncing[c.cnpj]
+                    ? <><span style={{animation:'spin 1s linear infinite',display:'inline-flex'}}><IconRefresh size={13}/></span> Sync...</>
+                    : <><IconPlay size={13}/> Sync</>}
                 </button>
                 <button
                   onClick={onAddManual}
@@ -162,7 +165,7 @@ export function Empresas({ companies, syncing, onSync, onRefresh, onAddManual }:
                     padding: '9px 12px', borderRadius: 9, fontSize: 12, cursor: 'pointer',
                   }}
                 >
-                  ✕
+                  <IconX size={14} />
                 </button>
               </div>
             </div>

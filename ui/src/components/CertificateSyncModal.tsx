@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { browseFolder } from '../lib/api';
+import { IconLock, IconFolder, IconX } from './Icons';
 
 export interface CertSyncParams {
   cnpj: string;
@@ -114,7 +115,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
 
         {phase === 'picking' && (
           <div className="text-center py-8">
-            <div className="text-4xl mb-3">🔐</div>
+            <div className="text-4xl mb-3" style={{color:'#6366f1'}}><IconLock size={40} /></div>
             <p className="font-medium text-gray-900">Abrindo seletor de certificados...</p>
             <p className="text-sm text-gray-400 mt-1">Selecione o certificado na janela do Windows</p>
           </div>
@@ -124,7 +125,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
           <div className="py-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-red-700">Erro ao selecionar certificado</h2>
-              <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><IconX size={16} /></button>
             </div>
             <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700 mb-4">{errorMsg}</div>
             <div className="flex justify-end">
@@ -137,7 +138,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
           <>
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-base font-semibold">Buscar Notas</h2>
-              <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><IconX size={16} /></button>
             </div>
             <div className={`mb-4 rounded p-2 text-sm ${cert.needsPassword ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50'}`}>
               <div className="font-medium text-gray-900">{cert.nome}</div>
@@ -180,7 +181,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
                     disabled={browsingFolder}
                     className="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50 whitespace-nowrap"
                   >
-                    {browsingFolder ? '...' : '📁 Escolher'}
+                    {browsingFolder ? '...' : <><IconFolder size={13} /> Escolher</>}
                   </button>
                 </div>
               </div>
