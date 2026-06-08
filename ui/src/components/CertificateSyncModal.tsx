@@ -19,6 +19,7 @@ interface PickedCert {
   tempPfxPath: string;
   tempPassword: string;
   needsPassword: boolean;
+  defaultOutputFolder?: string;
 }
 
 interface Props {
@@ -68,6 +69,8 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
       .then(picked => {
         if (!picked) return;
         setCert(picked);
+        // Pré-preenche a pasta com o default sugerido pelo backend
+        if (picked.defaultOutputFolder) setOutputFolder(picked.defaultOutputFolder);
         setPhase('form');
       })
       .catch(err => {
