@@ -100,13 +100,28 @@ describe('danfse-generator', () => {
         '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>',
         '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><tribFed><vRetIRRF>43.00</vRetIRRF></tribFed>',
       );
-      expect(extractDanfseData(comRet).vIRRF).toBe('43');
+      expect(extractDanfseData(comRet).vIRRF).toBe('R$ 43,00');
 
       const legado = sampleXml.replace(
         '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>',
         '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><tribFed><vIRRF>21.50</vIRRF></tribFed>',
       );
-      expect(extractDanfseData(legado).vIRRF).toBe('21.5');
+      expect(extractDanfseData(legado).vIRRF).toBe('R$ 21,50');
+    });
+
+    it('resolve o código IBGE do tomador para "Município - UF"', () => {
+      // O XML só traz cMun 3304557; o DANFSe exibe o nome do município
+      expect(extractDanfseData(sampleXml).tomaMunicipio).toBe('Rio de Janeiro - RJ');
+    });
+
+    it('formata o código de tributação nacional como NN.NN.NN', () => {
+      expect(extractDanfseData(sampleXml).cTribNac).toBe('14.02.01');
+    });
+
+    it('exibe valores monetários no formato do DANFSe', () => {
+      const d = extractDanfseData(sampleXml);
+      expect(d.vServico).toBe('R$ 2.866,67');
+      expect(d.vLiq).toBe('R$ 2.866,67');
     });
   });
 });

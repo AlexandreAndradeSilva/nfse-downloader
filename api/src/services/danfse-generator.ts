@@ -9,17 +9,27 @@ import { buildDanfseHtml, type DanfseData, type DanfseStamp } from './danfse-tem
 export type { DanfseStamp };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LOGO_B64_PATH = join(__dirname, '../assets/nfse-logo.b64');
+const ASSETS_DIR = join(__dirname, '../assets');
 
 function loadLogoDataUrl(): string | undefined {
-  if (existsSync(LOGO_B64_PATH)) {
-    const b64 = readFileSync(LOGO_B64_PATH, 'ascii').trim();
-    return `data:image/png;base64,${b64}`;
+  const p = join(ASSETS_DIR, 'nfse-logo.b64');
+  if (!existsSync(p)) return undefined;
+  return `data:image/png;base64,${readFileSync(p, 'ascii').trim()}`;
+}
+
+/** Código IBGE (7 dígitos) → "Município - UF". Usado onde o XML só traz o código. */
+function loadMunicipios(): Record<string, string> {
+  const p = join(ASSETS_DIR, 'municipios-ibge.json');
+  if (!existsSync(p)) return {};
+  try {
+    return JSON.parse(readFileSync(p, 'utf-8')) as Record<string, string>;
+  } catch {
+    return {};
   }
-  return undefined;
 }
 
 const LOGO_DATA_URL = loadLogoDataUrl();
+const MUNICIPIOS = loadMunicipios();
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -48,24 +58,53 @@ function fmtDateTime(iso: string): string {
     d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/** dCompet vem como AAAA-MM-DD; a espec exige DD/MM/AAAA. */
-function fmtCompetencia(dCompet: string): string {
-  if (!dCompet) return '';
-  const m = dCompet.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
-  if (!m) return dCompet;
-  return `${m[3] ?? '01'}/${m[2]}/${m[1]}`;
+/** dCompet vem como AAAA-MM-DD; o DANFSe exibe DD/MM/AAAA. */
+function fmtData(iso: string): string {
+  if (!iso) return '';
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
-function buildEndereco(xLgr: string, nro: string, xCpl: string, xBairro: string): string {
-  return [xLgr, nro, xCpl, xBairro].map(s).filter(Boolean).join(', ');
+function fmtCnpjCpf(v: string): string {
+  const dig = String(v ?? '').replace(/\D/g, '');
+  if (dig.length === 14) return dig.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  if (dig.length === 11) return dig.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+  return String(v ?? '');
 }
 
-/** Soma dois valores monetários do XML; devolve '' se ambos ausentes. */
-function somaValores(a: unknown, b: unknown): string {
-  const na = parseFloat(s(a));
-  const nb = parseFloat(s(b));
-  if (isNaN(na) && isNaN(nb)) return '';
-  return String((isNaN(na) ? 0 : na) + (isNaN(nb) ? 0 : nb));
+function fmtCep(v: string): string {
+  const dig = String(v ?? '').replace(/\D/g, '');
+  return dig.length === 8 ? dig.replace(/^(\d{5})(\d{3})$/, '$1-$2') : String(v ?? '');
+}
+
+/** Valor monetário no formato do DANFSe: "R$ 1.234,56". Vazio se não houver valor. */
+function moeda(v: unknown): string {
+  const n = parseFloat(String(v ?? '').replace(',', '.'));
+  if (isNaN(n)) return '';
+  return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function percentual(v: unknown): string {
+  const n = parseFloat(String(v ?? '').replace(',', '.'));
+  if (isNaN(n)) return '';
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+}
+
+/** cTribNac "170901" → "17.09.01" (formato do código de tributação nacional). */
+function fmtCodTrib(v: string): string {
+  const dig = String(v ?? '').replace(/\D/g, '');
+  return dig.length === 6 ? `${dig.slice(0, 2)}.${dig.slice(2, 4)}.${dig.slice(4, 6)}` : String(v ?? '');
+}
+
+/** Resolve o código IBGE para "Município - UF"; devolve o código se desconhecido. */
+function municipio(cMun: string): string {
+  const c = String(cMun ?? '').replace(/\D/g, '');
+  if (!c) return '';
+  return MUNICIPIOS[c] ?? c;
+}
+
+function endereco(...partes: unknown[]): string {
+  return partes.map(s).filter(Boolean).join(', ');
 }
 
 const REG_ESP_TRIB: Record<string, string> = {
@@ -73,6 +112,29 @@ const REG_ESP_TRIB: Record<string, string> = {
   '3': 'Sociedade de Profissionais', '4': 'Cooperativa',
   '5': 'Microempresário Individual', '6': 'Microempresário e Empresa de Pequeno Porte',
 };
+const OP_SIMPLES: Record<string, string> = {
+  '1': 'Não optante', '2': 'Optante - MEI', '3': 'Optante - ME/EPP',
+};
+const REG_AP_TRIB_SN: Record<string, string> = {
+  '1': 'Regime de apuração dos tributos federais e municipal pelo SN',
+  '2': 'Regime de apuração dos tributos federais pelo SN e ISSQN por fora do SN',
+  '3': 'Regime de apuração dos tributos federais e municipal por fora do SN',
+};
+const TRIB_ISSQN: Record<string, string> = {
+  '1': 'Operação Tributável', '2': 'Exportação de Serviço',
+  '3': 'Não Incidência', '4': 'Imunidade',
+};
+const TP_RET_ISSQN: Record<string, string> = {
+  '1': 'Não Retido', '2': 'Retido pelo Tomador', '3': 'Retido pelo Intermediário',
+};
+const TP_EMIT: Record<string, string> = {
+  '1': 'Prestador do Serviço', '2': 'Tomador do Serviço', '3': 'Intermediário do Serviço',
+};
+
+function desc(codigo: unknown, mapa: Record<string, string>): string {
+  const c = s(codigo);
+  return c ? (mapa[c] ?? c) : '';
+}
 
 export function extractDanfseData(xmlStr: string): DanfseData {
   const parsed = parser.parse(xmlStr);
@@ -99,142 +161,120 @@ export function extractDanfseData(xmlStr: string): DanfseData {
   const enderNac = emit?.enderNac ?? {};
   const tomaEnd = toma?.end ?? {};
   const tomaEndNac = tomaEnd?.endNac ?? {};
-  // Blocos da reforma tributária — presentes só em NFS-e sob vigência do IBS/CBS
-  const ibsCbsDps = dps?.IBSCBS ?? {};
-  const ibsCbsInf = inf?.IBSCBS ?? {};
-  const dest = ibsCbsDps?.dest ?? {};
 
-  // Chave de acesso: atributo Id sem o prefixo "NFS" (espec, seção 2.1.1).
-  // Lida do XML cru para não perder dígitos na conversão numérica do parser.
-  const idAttr = xmlStr.match(/<infNFSe[^>]*\bId="([^"]+)"/)?.[1]
-    ?? s(inf?.['@_Id'] ?? '');
+  // Chave de acesso: atributo Id sem o prefixo "NFS", lido do XML cru para
+  // não perder dígitos na conversão numérica do parser.
+  const idAttr = xmlStr.match(/<infNFSe[^>]*\bId="([^"]+)"/)?.[1] ?? s(inf?.['@_Id'] ?? '');
   const chaveAcesso = idAttr.startsWith('NFS') ? idAttr.slice(3) : idAttr;
 
-  // vRetIRRF é o nome correto no schema nacional; vIRRF é fallback legado.
+  // vRetIRRF é o nome no schema nacional; vIRRF é fallback legado
   const vIRRF = s(tribFed.vRetIRRF) || s(tribFed.vIRRF);
+  const vCP = s(tribFed.vRetCP);
+  const vCSLL = s(tribFed.vRetCSLL);
+
+  // Total das retenções federais: soma do que foi efetivamente retido
+  const totalRetFed = [vIRRF, vCP, vCSLL]
+    .map(v => parseFloat(v || '0'))
+    .filter(n => !isNaN(n))
+    .reduce((a, b) => a + b, 0);
+
+  const municipioEmit = municipio(s(enderNac.cMun)) || s(inf.xLocEmi);
+  const municipioToma = municipio(s(tomaEndNac.cMun));
 
   return {
     chaveAcesso: chaveAcesso || tag(xmlStr, 'chNFSe'),
     numeroNFSe: s(inf.nNFSe) || tag(xmlStr, 'nNFSe'),
-    competencia: fmtCompetencia(s(dps.dCompet)),
+    competencia: fmtData(s(dps.dCompet)),
     dhEmissao: fmtDateTime(tag(xmlStr, 'dhProc') || tag(xmlStr, 'dhEmi')),
     dhEmissaoDps: fmtDateTime(tag(xmlStr, 'dhEmi')),
     numeroDPS: s(dps.nDPS),
     serieDPS: s(dps.serie),
-    ambGer: s(inf.ambGer),
-    tpAmb: s(dps.tpAmb) || s(inf.tpAmb),
-    tpEmit: s(dps.tpEmit),
-    cStat: s(inf.xStat ?? '') || s(inf.cStat ?? ''),
-    finNFSe: s(dps?.IBSCBS?.finNFSe ?? ''),
+    tpEmit: desc(dps.tpEmit, TP_EMIT),
 
-    // Prestador / Fornecedor
-    emitCnpj: tag(xmlStr, 'CNPJ') || s(emit.CNPJ),
+    // Emitente / prestador
+    emitCnpj: fmtCnpjCpf(tag(xmlStr, 'CNPJ') || s(emit.CNPJ)),
     emitIm: s(prest?.IM ?? emit?.IM ?? ''),
     emitTelefone: s(emit.fone || prest.fone),
     emitNome: s(emit.xNome),
     emitEmail: s(emit.email || prest.email),
-    emitEndereco: buildEndereco(s(enderNac.xLgr), s(enderNac.nro), s(enderNac.xCpl), s(enderNac.xBairro)),
-    emitMunicipio: s(inf.xLocEmi) || s(enderNac.cMun),
-    emitUF: s(enderNac.UF),
-    emitCep: s(enderNac.CEP),
-    emitCMun: s(enderNac.cMun),
-    emitSimplesNac: s(prest?.regTrib?.opSimpNac ?? ''),
-    emitRegApTribSN: s(prest?.regTrib?.regApTribSN ?? ''),
-    emitRegEspTrib: REG_ESP_TRIB[s(prest?.regTrib?.regEspTrib ?? '')] ?? '',
+    emitEndereco: endereco(enderNac.xLgr, enderNac.nro, enderNac.xCpl, enderNac.xBairro),
+    emitMunicipio: municipioEmit,
+    emitCep: fmtCep(s(enderNac.CEP)),
+    emitSimplesNac: desc(prest?.regTrib?.opSimpNac, OP_SIMPLES),
+    emitRegApTribSN: desc(prest?.regTrib?.regApTribSN, REG_AP_TRIB_SN),
+    emitRegEspTrib: desc(prest?.regTrib?.regEspTrib, REG_ESP_TRIB),
 
-    // Tomador / Adquirente
-    tomaCnpj: s(toma.CNPJ || toma.CPF),
+    // Tomador
+    tomaCnpj: fmtCnpjCpf(s(toma.CNPJ || toma.CPF)),
     tomaIm: s(toma?.IM ?? ''),
-    tomaNome: s(toma.xNome),
-    tomaEndereco: buildEndereco(s(tomaEnd.xLgr), s(tomaEnd.nro), s(tomaEnd.xCpl), s(tomaEnd.xBairro)),
-    tomaMunicipio: s(tomaEndNac.cMun),
-    tomaUF: s(tomaEndNac.UF) || s(tomaEnd?.endNac?.UF ?? ''),
-    tomaCep: s(tomaEndNac.CEP),
-    tomaCMun: s(tomaEndNac.cMun),
     tomaTelefone: s(toma.fone),
+    tomaNome: s(toma.xNome),
     tomaEmail: s(toma.email),
-
-    // Destinatário da operação (reforma tributária)
-    destCnpj: s(dest.CNPJ || dest.CPF || ''),
-    destNome: s(dest.xNome ?? ''),
-    destTelefone: s(dest.fone ?? ''),
+    tomaEndereco: endereco(tomaEnd.xLgr, tomaEnd.nro, tomaEnd.xCpl, tomaEnd.xBairro),
+    tomaMunicipio: municipioToma,
+    tomaCep: fmtCep(s(tomaEndNac.CEP)),
 
     // Intermediário
-    intermCnpj: s(interm.CNPJ || interm.CPF || ''),
+    intermCnpj: fmtCnpjCpf(s(interm.CNPJ || interm.CPF || '')),
     intermIm: s(interm?.IM ?? ''),
-    intermNome: s(interm.xNome ?? ''),
     intermTelefone: s(interm.fone ?? ''),
+    intermNome: s(interm.xNome ?? ''),
 
     // Serviço prestado
-    cTribNac: s(cServ.cTribNac),
+    cTribNac: fmtCodTrib(s(cServ.cTribNac)),
     xTribNac: s(inf.xTribNac),
     cTribMun: s(cServ.cTribMun),
     xTribMun: s(inf.xTribMun),
+    xLocPrestacao: s(inf.xLocPrestacao) || municipio(s(locPrest.cLocPrestacao)),
+    xPaisPrestacao: s(locPrest.cPaisPrestacao ?? ''),
     xDescServ: s(cServ.xDescServ),
-    cNBS: s(cServ.cNBS),
-    xLocPrestacao: s(inf.xLocPrestacao) || s(locPrest.cLocPrestacao),
-    xLocEmi: s(inf.xLocEmi),
-    xMunicipioIncid: s(inf.xLocIncid) || s(inf.xLocEmi),
-    xInfComp: s(infoCompl.xInfComp),
 
-    // Tributação municipal (ISSQN)
-    tribISSQN: s(tribMun.tribISSQN),
-    tpRetISSQN: s(tribMun.tpRetISSQN),
+    // Tributação municipal
+    tribISSQN: desc(tribMun.tribISSQN, TRIB_ISSQN),
+    xPaisResult: s(tribMun.cPaisResult ?? ''),
+    xMunicipioIncid: s(inf.xLocIncid) || municipio(s(inf.cLocIncid ?? '')),
     tpImunidade: s(tribMun.tpImunidade ?? ''),
-    tpSuspensao: s(exigSusp.tpSusp ?? ''),
+    tpSuspensao: exigSusp?.tpSusp ? 'Sim' : 'Não',
     nProcessoSusp: s(exigSusp.nProcesso ?? ''),
     tpBM: s(valoresNfse.tpBM ?? ''),
-    vBM: s(tribMun?.BM?.vCalcBM ?? tribMun?.BM?.vRedBCBM ?? ''),
-    vDR: s(valoresNfse.vDR ?? ''),
-    vBC: s(valoresNfse.vBC),
-    pAliqAplic: s(valoresNfse.pAliqAplic) || s(tribMun.pAliq),
-    // vISSQN vem calculado na NFS-e; é a fonte autoritativa
-    vISSQN: s(valoresNfse.vISSQN),
+    vServico: moeda(vServPrest.vServ ?? valoresNfse.vBC),
+    vDescIncond: moeda(vDescCondIncond.vDescIncond),
+    vDR: moeda(valoresNfse.vDR),
+    vCalcBM: moeda(tribMun?.BM?.vCalcBM),
+    vBC: moeda(valoresNfse.vBC),
+    pAliqAplic: percentual(valoresNfse.pAliqAplic ?? tribMun.pAliq),
+    tpRetISSQN: desc(tribMun.tpRetISSQN, TP_RET_ISSQN),
+    vISSQN: moeda(valoresNfse.vISSQN),
 
-    // Tributação federal (exceto CBS)
-    vIRRF,
-    vCP: s(tribFed.vRetCP),
-    vCSLL: s(tribFed.vRetCSLL),
-    vPIS: s(piscofins.vPis),
-    vCOFINS: s(piscofins.vCofins),
-    tpRetPisCofins: s(piscofins.tpRetPisCofins),
+    // Tributação federal
+    vIRRF: moeda(vIRRF),
+    vCP: moeda(vCP),
+    vCSLL: moeda(vCSLL),
+    xDescricaoRetFed: s(tribFed.xDescRet ?? ''),
+    vPIS: moeda(piscofins.vPis),
+    vCOFINS: moeda(piscofins.vCofins),
 
     // Valor total
-    vServico: s(vServPrest.vServ) || s(valoresNfse.vBC),
-    vDescIncond: s(vDescCondIncond.vDescIncond ?? ''),
-    vDescCond: s(vDescCondIncond.vDescCond ?? ''),
-    vTotalRet: s(valoresNfse.vTotalRet ?? ''),
-    vLiq: s(valoresNfse.vLiq),
+    vDescCond: moeda(vDescCondIncond.vDescCond),
+    vISSQNRetido: s(tribMun.tpRetISSQN) === '1' ? '' : moeda(valoresNfse.vISSQN),
+    vTotalRetFed: totalRetFed > 0 ? moeda(String(totalRetFed)) : '',
+    vPisCofinsDebito: moeda(piscofins.vPisCofinsDebito),
+    vLiq: moeda(valoresNfse.vLiq),
 
-    // Tributação IBS/CBS (reforma tributária; ausente em NFS-e anteriores à vigência)
-    cstIbsCbs: s(ibsCbsDps?.valores?.trib?.gIBSCBS?.CST ?? ''),
-    cClassTrib: s(ibsCbsDps?.valores?.trib?.gIBSCBS?.cClassTrib ?? ''),
-    xLocalidadeIncid: s(ibsCbsInf?.xLocalidadeIncid ?? ''),
-    vExclusoesBC: s(ibsCbsInf?.valores?.vExclusoesBC ?? ''),
-    vBCIbsCbs: s(ibsCbsInf?.valores?.vBC ?? ''),
-    pAliqEfetMun: s(ibsCbsInf?.valores?.mun?.pAliqEfetMun ?? ''),
-    vIBSMun: s(ibsCbsInf?.totCIBS?.gIBS?.gIBSMunTot?.vIBSMun ?? ''),
-    pAliqEfetUF: s(ibsCbsInf?.valores?.uf?.pAliqEfetUF ?? ''),
-    vIBSUF: s(ibsCbsInf?.totCIBS?.gIBS?.gIBSUFTot?.vIBSUF ?? ''),
-    vIBSTot: s(ibsCbsInf?.totCIBS?.gIBS?.vIBSTot ?? ''),
-    pCBS: s(ibsCbsInf?.valores?.fed?.pCBS ?? ''),
-    pAliqEfetCBS: s(ibsCbsInf?.valores?.fed?.pAliqEfetCBS ?? ''),
-    vCBS: s(ibsCbsInf?.totCIBS?.gCBS?.vCBS ?? ''),
-    vIbsCbsTot: somaValores(ibsCbsInf?.totCIBS?.gIBS?.vIBSTot, ibsCbsInf?.totCIBS?.gCBS?.vCBS),
-    vTotNF: s(ibsCbsInf?.totCIBS?.vTotNF ?? ''),
+    // Totais aproximados dos tributos
+    vTotTribFed: moeda(totTrib.vTotTribFed),
+    vTotTribEst: moeda(totTrib.vTotTribEst),
+    vTotTribMun: moeda(totTrib.vTotTribMun),
 
-    // Totais aproximados de tributos
-    vTotTribFed: s(totTrib.vTotTribFed),
-    vTotTribEst: s(totTrib.vTotTribEst),
-    vTotTribMun: s(totTrib.vTotTribMun),
+    // Informações complementares
+    xInfComp: s(infoCompl.xInfComp),
+    cNBS: s(cServ.cNBS),
   };
 }
 
 /**
- * URL de consulta pública embutida no QR Code.
- * A NT 008 posiciona o QR Code no formulário (bloco "QUADRO DO QR CODE") mas o texto
- * recuperável da espec não fixa a URL; usamos o portal nacional de consulta com a
- * chave de acesso, que é o destino esperado pelo contribuinte.
+ * URL de consulta pública embutida no QR Code — o mesmo destino indicado no
+ * DANFSe oficial ("consulta da chave de acesso no portal nacional da NFS-e").
  */
 const CONSULTA_URL = (chave: string) =>
   `https://www.nfse.gov.br/consultapublica?tpc=1&chave=${chave}`;
@@ -242,15 +282,14 @@ const CONSULTA_URL = (chave: string) =>
 async function buildQrDataUrl(chave: string): Promise<string | undefined> {
   if (!chave) return undefined;
   try {
-    return await QRCode.toDataURL(CONSULTA_URL(chave), { margin: 0, width: 160 });
+    return await QRCode.toDataURL(CONSULTA_URL(chave), { margin: 0, width: 220 });
   } catch {
     return undefined; // QR é complementar — não impede a emissão do DANFSe
   }
 }
 
 // ─── Browser compartilhado ───────────────────────────────────────────────────
-// Um Chromium por processo, com N abas em paralelo, em vez de um browser por nota
-// (o modelo anterior custava ~200MB e 1-2s de startup por PDF).
+// Um Chromium por processo, com N abas em paralelo, em vez de um browser por nota.
 
 let browserP: Promise<Browser> | null = null;
 let idleTimer: NodeJS.Timeout | null = null;
