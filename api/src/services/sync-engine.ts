@@ -129,8 +129,25 @@ export async function runSync(
     }
 
     // 3) Grava o lote — itens em batches paralelos.
+    // O ADN entrega o lote inteiro numa única resposta, então os NSUs já
+    // indexados chegam junto com os novos. Resolvê-los pelo índice evita
+    // descompactar, reparsear e regravar em disco o que já está lá.
     const cursorAntes = cursor;
-    const itens = response.LoteDFe ?? [];
+    const todosItens = response.LoteDFe ?? [];
+    let doCache = 0;
+    const itens = todosItens.filter(item => {
+      // NSU abaixo do cursor já foi contabilizado pelo laço de índice acima —
+      // o servidor pode reenviá-lo no lote, mas contá-lo de novo duplicaria.
+      if (item.NSU < cursorAntes) return false;
+      const conhecido = index.get(item.NSU);
+      if (!conhecido || !existsSync(join(companyDir, conhecido.arquivo))) return true;
+      conta(conhecido, true);
+      doCache++;
+      if (item.NSU >= cursor) cursor = item.NSU + 1;
+      return false;
+    });
+    if (doCache > 0) onProgress(`${doCache} documento(s) já baixado(s) — resolvidos pelo índice`);
+
     for (let i = 0; i < itens.length; i += LOTE_CONCURRENCY) {
       const batch = itens.slice(i, i + LOTE_CONCURRENCY);
       const results = await Promise.allSettled(

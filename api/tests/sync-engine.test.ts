@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { rmSync, existsSync, unlinkSync, readFileSync } from 'fs';
+import { rmSync, existsSync, unlinkSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { runSync } from '../src/services/sync-engine.js';
 import type { AdnDistribuicaoResponse, Company } from '../src/types.js';
@@ -259,5 +259,32 @@ describe('sync-engine', () => {
     expect(result.tomados).toBe(1);
     expect(result.prestados).toBe(0);
     expect(existsSync(join(OUTPUT, company.nome, '062026', 'prestados', 'NFS 201.xml'))).toBe(true);
+  });
+
+  it('NSUs do lote já indexados são resolvidos sem regravar o arquivo', async () => {
+    // O ADN devolve o lote inteiro numa resposta só: os já baixados chegam
+    // junto com os novos e precisam ser resolvidos pelo índice.
+    const xml101 = await makeXmlB64(company.cnpj, 101);
+    const primeira = vi.fn()
+      .mockResolvedValueOnce(lote([{ NSU: 101, ArquivoXml: xml101 }]))
+      .mockResolvedValueOnce(nenhum());
+    await runSync(company, primeira, () => {}, {});
+
+    const arquivo = join(OUTPUT, company.nome, '062026', 'prestados', 'NFS 101.xml');
+    const mtimeAntes = statSync(arquivo).mtimeMs;
+
+    // Segunda rodada: o mesmo NSU volta no lote, mais um NSU novo
+    const xml102 = await makeXmlB64(company.cnpj, 102);
+    const segunda = vi.fn()
+      .mockResolvedValueOnce(lote([
+        { NSU: 101, ArquivoXml: xml101 },
+        { NSU: 102, ArquivoXml: xml102 },
+      ]))
+      .mockResolvedValueOnce(nenhum());
+    const result = await runSync({ ...company, lastNsu: 100 }, segunda, () => {}, {});
+
+    expect(result.cache).toBe(1);          // o 101 veio do índice
+    expect(result.prestados).toBe(2);      // ambos contam no resumo
+    expect(statSync(arquivo).mtimeMs).toBe(mtimeAntes); // não foi regravado
   });
 });
