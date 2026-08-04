@@ -4,8 +4,24 @@ import { Router } from 'express';
 import { getCompany, updateLastNsu, upsertCompany } from '../config-store.js';
 import { fetchDFeLote } from '../services/adn-client.js';
 import { runSync, type SyncOptions } from '../services/sync-engine.js';
+import type { TipoNota } from '../types.js';
 
 export const syncRouter = Router();
+
+const TIPOS_VALIDOS: TipoNota[] = ['prestados', 'tomados'];
+
+/**
+ * Normaliza o parâmetro `tipos` da query (`?tipos=prestados,tomados`): filtra
+ * valores desconhecidos e cai no default (ambos) quando o resultado fica
+ * vazio — sem isso, `?tipos=xyz` zeraria silenciosamente o resumo do sync.
+ */
+export function parseTiposParam(raw: unknown): TipoNota[] {
+  const parsed = String(raw ?? 'prestados,tomados')
+    .split(',')
+    .map(t => t.trim())
+    .filter((t): t is TipoNota => t === 'prestados' || t === 'tomados');
+  return parsed.length > 0 ? parsed : TIPOS_VALIDOS;
+}
 
 // Resolve o caminho do .pfx: se for pasta, encontra o maior .pfx dentro dela (compat tem 9k+)
 function resolvePfxPath(pfxPath: string): string {
@@ -48,7 +64,9 @@ syncRouter.get('/:cnpj', async (req, res) => {
 
   const { dataInicio, dataFim } = req.query as Record<string, string>;
   const comFiltroData = !!(dataInicio || dataFim);
+  const tiposParam = parseTiposParam(req.query.tipos);
   const options: SyncOptions = {
+    tipos: tiposParam,
     // Com filtro de data: re-scan desde o NSU 1 para encontrar documentos antigos do período.
     // Sem filtro: incremental a partir do último NSU processado.
     startNsu: comFiltroData ? 1 : undefined,
@@ -88,11 +106,14 @@ syncRouter.get('/:cnpj', async (req, res) => {
       : result.lastNsu;
     updateLastNsu(cnpj, nsuParaSalvar);
 
-    const semNovos = result.prestados === 0 && result.tomados === 0 && result.eventos === 0 && result.errors === 0;
-    const eventosMsg = result.eventos > 0 ? `, ${result.eventos} evento(s)` : '';
+    const semNovos = result.prestados + result.tomados + result.eventos === 0 && result.errors === 0;
+    const rotulo = tiposParam.length === 1
+      ? (tiposParam[0] === 'prestados' ? 'prestados' : 'tomados')
+      : 'prestados e tomados';
     const msgFinal = semNovos && !comFiltroData
       ? `Nenhuma nota nova desde a última sincronização (NSU atual: ${nsuParaSalvar})`
-      : `Concluído: ${result.prestados} prestados, ${result.tomados} tomados${eventosMsg}, ${result.foraPeriodo} fora do período, ${result.errors} erros`;
+      : `Concluído (${rotulo}): ${result.prestados} prestados, ${result.tomados} tomados, ${result.eventos} eventos` +
+        `${result.cache ? `, ${result.cache} do cache` : ''}${result.foraPeriodo ? `, ${result.foraPeriodo} fora do período` : ''}, ${result.errors} erros`;
 
     send('done', { message: msgFinal, ...result });
   } catch (err) {
