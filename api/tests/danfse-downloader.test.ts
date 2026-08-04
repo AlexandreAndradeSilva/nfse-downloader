@@ -29,6 +29,15 @@ describe('danfse-downloader', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);   // 4ª chamada não foi à rede
   });
 
+  it('rejeita 200 cujo corpo não é PDF (página de erro do balanceador)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      arrayBuffer: async () => new TextEncoder().encode('<html><body>503 Service Unavailable</body></html>').buffer,
+    });
+    const buf = await downloadDanfsePdf(CHAVE, '', '', fetchImpl as never);
+    expect(buf).toBeNull();
+  });
+
   it('sucesso zera o contador de falhas', async () => {
     const fail = { ok: false, status: 503, text: async () => '' };
     const okRes = { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode('%PDF-1.4').buffer };

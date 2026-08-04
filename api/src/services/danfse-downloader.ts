@@ -80,6 +80,12 @@ export async function downloadDanfsePdf(
     });
     if (res.ok) {
       const buf = Buffer.from(await res.arrayBuffer());
+      // Balanceadores podem responder 200 com página HTML de erro. Sem esta
+      // checagem, o HTML seria gravado como .pdf na pasta fiscal do usuário.
+      if (!buf.subarray(0, 5).toString('latin1').startsWith('%PDF')) {
+        registrarFalha('resposta 200 sem assinatura %PDF');
+        return null;
+      }
       falhasConsecutivas = 0;
       return buf;
     }
