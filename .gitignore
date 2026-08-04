@@ -12,3 +12,4 @@ config.json
 
 # Extração automática do PDF da NT 008 (artefato de trabalho)
 docs/referencias/nt-008-texto.txt
+docs/referencias/nt-008-tabela-campos.txt

@@ -1,3 +1,19 @@
+/**
+ * Template do DANFSe conforme o layout oficial da NT 008/2026 v1.02 (SE/CGNFS-e).
+ *
+ * A especificação (docs/referencias/nt-008-danfse-v1.02.pdf) define, para cada campo,
+ * a posição em centímetros relativa à margem, na ordem: altura, largura, esquerda, topo.
+ * Este arquivo transcreve essa tabela em posicionamento absoluto CSS em `cm`, o que
+ * mapeia 1:1 com o formulário oficial quando impresso em A4.
+ *
+ * Grade da espec: colunas em 0,30 / 5,41 / 10,51 / 15,62 cm, cada uma com 5,09 cm de
+ * largura (spans de 10,19 e 20,40 cm cobrem duas e quatro colunas).
+ *
+ * Campos codificados são exibidos como "código - descrição" para preservar
+ * auditabilidade: se a descrição divergir da tabela oficial, o código original
+ * continua legível no documento.
+ */
+
 export interface DanfseData {
   chaveAcesso: string;
   numeroNFSe: string;
@@ -6,7 +22,12 @@ export interface DanfseData {
   dhEmissaoDps: string;
   numeroDPS: string;
   serieDPS: string;
-  // Emitente
+  ambGer: string;
+  tpAmb: string;
+  tpEmit: string;
+  cStat: string;
+  finNFSe: string;
+  // Prestador / Fornecedor
   emitCnpj: string;
   emitIm: string;
   emitTelefone: string;
@@ -16,9 +37,11 @@ export interface DanfseData {
   emitMunicipio: string;
   emitUF: string;
   emitCep: string;
+  emitCMun: string;
   emitSimplesNac: string;
+  emitRegApTribSN: string;
   emitRegEspTrib: string;
-  // Tomador
+  // Tomador / Adquirente
   tomaCnpj: string;
   tomaIm: string;
   tomaNome: string;
@@ -26,9 +49,19 @@ export interface DanfseData {
   tomaMunicipio: string;
   tomaUF: string;
   tomaCep: string;
+  tomaCMun: string;
   tomaTelefone: string;
   tomaEmail: string;
-  // Serviço
+  // Destinatário da operação (reforma tributária — IBSCBS/dest)
+  destCnpj: string;
+  destNome: string;
+  destTelefone: string;
+  // Intermediário
+  intermCnpj: string;
+  intermIm: string;
+  intermNome: string;
+  intermTelefone: string;
+  // Serviço prestado
   cTribNac: string;
   xTribNac: string;
   cTribMun: string;
@@ -39,335 +72,371 @@ export interface DanfseData {
   xLocEmi: string;
   xMunicipioIncid: string;
   xInfComp: string;
-  // Tributação ISSQN
+  // Tributação municipal (ISSQN)
   tribISSQN: string;
   tpRetISSQN: string;
+  tpImunidade: string;
+  tpSuspensao: string;
+  nProcessoSusp: string;
+  tpBM: string;
+  vBM: string;
+  vDR: string;
   vBC: string;
   pAliqAplic: string;
-  pISSQN: string;
   vISSQN: string;
-  // Tributação Federal
+  // Tributação federal (exceto CBS)
+  vIRRF: string;
+  vCP: string;
+  vCSLL: string;
   vPIS: string;
   vCOFINS: string;
   tpRetPisCofins: string;
-  vCSLL: string;
-  vCP: string;
-  vIRRF: string;
-  // Totais aproximados
+  // Valor total
+  vServico: string;
+  vDescIncond: string;
+  vDescCond: string;
+  vTotalRet: string;
+  vLiq: string;
+  // Tributação IBS/CBS (reforma tributária)
+  cstIbsCbs: string;
+  cClassTrib: string;
+  xLocalidadeIncid: string;
+  vExclusoesBC: string;
+  vBCIbsCbs: string;
+  pAliqEfetMun: string;
+  vIBSMun: string;
+  pAliqEfetUF: string;
+  vIBSUF: string;
+  vIBSTot: string;
+  pCBS: string;
+  pAliqEfetCBS: string;
+  vCBS: string;
+  vIbsCbsTot: string;
+  vTotNF: string;
+  // Totais aproximados de tributos (compõem informações complementares)
   vTotTribFed: string;
   vTotTribEst: string;
   vTotTribMun: string;
-  // Valores
-  vServico: string;
-  vLiq: string;
-  vISSQNNfse: string;
 }
 
-function d(v: string | undefined | null): string {
-  const s = v?.toString().trim() ?? '';
-  return s || '-';
+export type DanfseStamp = 'CANCELADA' | 'SUBSTITUIDA' | undefined;
+
+/** Escapa texto para inserção segura no HTML. */
+function esc(v: string): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function fmtCnpj(v: string): string {
-  const n = v.replace(/\D/g, '');
-  if (n.length === 14) return n.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-  if (n.length === 11) return n.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
-  return v || '-';
+/** Trunca com reticências, conforme exigido pela espec para vários campos. */
+function trunc(v: string, max: number): string {
+  const t = String(v ?? '').trim();
+  return t.length > max ? t.slice(0, max - 3) + '...' : t;
+}
+
+function fmtCnpjCpf(v: string): string {
+  const dig = String(v ?? '').replace(/\D/g, '');
+  if (dig.length === 14) return dig.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  if (dig.length === 11) return dig.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+  return String(v ?? '');
 }
 
 function fmtCep(v: string): string {
-  const n = v.replace(/\D/g, '');
-  return n.length === 8 ? n.replace(/^(\d{5})(\d{3})$/, '$1-$2') : (v || '-');
+  const dig = String(v ?? '').replace(/\D/g, '');
+  return dig.length === 8 ? dig.replace(/^(\d{2})(\d{3})(\d{3})$/, '$1.$2-$3') : String(v ?? '');
 }
 
 function fmtMoeda(v: string): string {
-  const n = parseFloat(v);
-  if (isNaN(n)) return '-';
-  return `R$ ${n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+  const n = parseFloat(String(v ?? '').replace(',', '.'));
+  if (isNaN(n)) return '';
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtFone(v: string): string {
-  const n = v.replace(/\D/g, '');
-  if (n.length === 11) return n.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
-  if (n.length === 10) return n.replace(/^(\d{2})(\d{4})(\d{4})$/, '($1) $2-$3');
-  return v || '-';
+function fmtPerc(v: string): string {
+  const n = parseFloat(String(v ?? '').replace(',', '.'));
+  if (isNaN(n)) return '';
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + '%';
 }
 
-const TRIB_ISSQN: Record<string, string> = {
-  '1': 'Operação Tributável', '2': 'Fora do Município', '3': 'Imunidade',
-  '4': 'Exportação de Serviços', '5': 'Não Incidência', '6': 'Diferimento',
+/** Formata a chave de acesso de 50 dígitos em grupos de 4 para leitura. */
+function fmtChave(v: string): string {
+  const dig = String(v ?? '').replace(/\D/g, '');
+  return dig.length >= 44 ? dig.replace(/(\d{4})(?=\d)/g, '$1 ').trim() : String(v ?? '');
+}
+
+/**
+ * Exibe campo codificado como "código - descrição".
+ * Mantém o código visível para auditoria quando a descrição não é conhecida.
+ */
+function cod(valor: string, mapa: Record<string, string>): string {
+  const c = String(valor ?? '').trim();
+  if (!c) return '';
+  const desc = mapa[c];
+  return desc ? `${c} - ${desc}` : c;
+}
+
+const MAP_AMB_GER: Record<string, string> = {
+  '1': 'Prefeitura', '2': 'Sistema Nacional NFS-e',
+};
+const MAP_TP_AMB: Record<string, string> = {
+  '1': 'Produção', '2': 'Homologação',
+};
+const MAP_TP_EMIT: Record<string, string> = {
+  '1': 'Prestador', '2': 'Tomador', '3': 'Intermediário',
+};
+const MAP_SIMPLES: Record<string, string> = {
+  '1': 'Não Optante', '2': 'Optante - MEI', '3': 'Optante - ME/EPP',
+};
+const MAP_TRIB_ISSQN: Record<string, string> = {
+  '1': 'Operação tributável', '2': 'Exportação de serviço', '3': 'Não Incidência', '4': 'Imunidade',
+};
+// Mesmos rótulos usados em routes/reports.ts (herdados do build de produção)
+const MAP_TP_RET_ISSQN: Record<string, string> = {
+  '1': 'Não Retido', '2': 'Retido pelo Tomador', '3': 'Não Incide ISSQN',
+};
+const MAP_TP_RET_PISCOFINS: Record<string, string> = {
+  '0': 'Não Retidos', '1': 'Retidos', '2': 'Não Retidos',
+  '3': 'PIS/COFINS/CSLL Retidos', '4': 'PIS/COFINS Retidos, CSLL Não',
+  '5': 'PIS Retido', '6': 'COFINS Retido', '7': 'COFINS e CSLL Retidos',
+  '8': 'CSLL Retido', '9': 'PIS e CSLL Retidos',
 };
 
-const TP_RET_ISSQN: Record<string, string> = {
-  '1': 'Não Retido',
-  '2': 'Retido pelo Tomador',
-  '3': 'Não Incide ISSQN',
-};
+interface CellOpts {
+  center?: boolean;
+  big?: boolean;      // conteúdo em fonte maior (chave de acesso, valor líquido)
+  noBorder?: boolean;
+  block?: boolean;    // célula de título de bloco (sombreada)
+  wrap?: boolean;     // permite múltiplas linhas
+  tight?: boolean;    // linhas de altura reduzida (0,24–0,40 cm)
+}
 
-export function buildDanfseHtml(data: DanfseData, logoDataUrl?: string, cancelada = false): string {
-  const tribISSQNDesc = TRIB_ISSQN[data.tribISSQN] ?? (data.tribISSQN || 'Operação Tributável');
-  const retISSQN = TP_RET_ISSQN[data.tpRetISSQN] ?? (data.tpRetISSQN || 'Não Retido');
-  const simpNacDesc: Record<string, string> = {
-    '1': 'Não optante',
-    '2': 'Optante - Microempreendedor Individual (MEI)',
-    '3': 'Optante - Microempresa ou Empresa de Pequeno Porte (ME/EPP)',
-  };
-  const simpNac = simpNacDesc[data.emitSimplesNac] ?? 'Não optante';
-  const regEspTribDesc = data.emitRegEspTrib || '-';
-  const pAliqDisplay = data.pISSQN && data.pISSQN !== '-'
-    ? `${parseFloat(data.pISSQN).toFixed(2).replace('.', ',')}%`
-    : (data.pAliqAplic ? `${parseFloat(data.pAliqAplic).toFixed(2).replace('.', ',')}%` : '-');
-  const vIssqnDisplay = fmtMoeda(data.vISSQNNfse || data.vISSQN);
-  const municipioEmit = [data.emitMunicipio, data.emitUF].filter(v => v && v !== '-').join(' - ') || '-';
-  const municipioToma = [data.tomaMunicipio, data.tomaUF].filter(v => v && v !== '-').join(' - ') || '-';
-  const logoHtml = logoDataUrl
-    ? `<img src="${logoDataUrl}" style="max-width:150px;max-height:50px;object-fit:contain" alt="NFS-e"/>`
-    : `<div style="font-size:12pt;font-weight:900;color:#4a7a4a">NFS<span style="color:#1a3070">e</span></div>`
-      + `<div style="font-size:5pt;color:#555">Nota Fiscal de Serviço Eletrônica</div>`;
-  const infCompParts: string[] = [];
-  if (data.xInfComp && data.xInfComp !== '-') infCompParts.push(data.xInfComp);
-  if (data.cNBS && data.cNBS !== '-') infCompParts.push(`<strong>NBS:</strong> ${data.cNBS}`);
-  if (cancelada) infCompParts.push('<span style="color:#c00;font-weight:bold">NOTA FISCAL CANCELADA</span>');
-  const infCompHtml = infCompParts.map(p => `<div>${p}</div>`).join('');
+/** Emite uma célula posicionada em cm conforme a tabela da NT 008. */
+function cell(
+  esq: number, sup: number, larg: number, alt: number,
+  label: string, valor: string, opts: CellOpts = {},
+): string {
+  const cls = [
+    'c',
+    opts.block ? 'blk' : '',
+    opts.center ? 'ctr' : '',
+    opts.big ? 'big' : '',
+    opts.noBorder ? 'nb' : '',
+    opts.wrap ? 'wrap' : '',
+    opts.tight ? 'tight' : '',
+  ].filter(Boolean).join(' ');
+  const style = `left:${esq}cm;top:${sup}cm;width:${larg}cm;height:${alt}cm`;
+  const lbl = label ? `<div class="l">${esc(label)}</div>` : '';
+  return `<div class="${cls}" style="${style}">${lbl}<div class="v">${esc(valor)}</div></div>`;
+}
 
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 7pt; color: #000; background: #fff; }
-  .page { width: 210mm; padding: 5mm 6mm; position: relative; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  td { border: 1px solid #999; padding: 2px 3px; vertical-align: top; word-break: break-word; }
-  .lbl { font-size: 6pt; font-weight: bold; display: block; margin-bottom: 1px; }
-  .val { font-size: 7.5pt; display: block; }
-  .sec { font-weight: bold; font-size: 7.5pt; padding: 2px 4px; background: #d9d9d9; }
-  .sec-hd { background: #d9d9d9; }
-  .sec-label { font-weight: bold; font-size: 7.5pt; display: block; }
-  .sec-sub   { font-size: 6.5pt; display: block; }
-  .mt  { margin-top: 0; }
-  .ctr { text-align: center; }
-  .cancelada-stamp {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%) rotate(-55deg);
-    font-size: 76pt; font-weight: 900;
-    color: rgba(185, 28, 28, 0.38);
-    letter-spacing: 6px; white-space: nowrap;
-    pointer-events: none; z-index: 9999;
-    font-family: Arial Black, Arial, sans-serif;
-    text-transform: uppercase;
+export function buildDanfseHtml(
+  d: DanfseData,
+  logoDataUrl?: string,
+  stamp?: DanfseStamp,
+  qrDataUrl?: string,
+): string {
+  const parts: string[] = [];
+
+  // ─── CABEÇALHO (esq 0,30 / sup 0,30 / 20,40 × 1,16) ───────────────────────
+  parts.push('<div class="box" style="left:0.30cm;top:0.30cm;width:20.40cm;height:1.16cm"></div>');
+  if (logoDataUrl) {
+    parts.push(`<img class="logo" src="${logoDataUrl}" style="left:0.49cm;top:0.44cm;width:4.00cm;height:0.85cm" alt="NFS-e">`);
   }
+  parts.push(
+    '<div class="c ctr nb" style="left:5.41cm;top:0.30cm;width:10.19cm;height:1.16cm">' +
+    '<div class="titulo">DANFSe</div>' +
+    '<div class="subtitulo">Documento Auxiliar da NFS-e</div></div>',
+  );
+  parts.push(cell(15.62, 0.30, 5.09, 0.64, '', `Município: ${trunc([d.xLocEmi || d.emitMunicipio, d.emitUF].filter(Boolean).join(' / '), 37)}`, { center: true, noBorder: true }));
+  parts.push(cell(15.62, 0.97, 5.09, 0.25, '', `Ambiente gerador: ${cod(d.ambGer, MAP_AMB_GER)}`, { center: true, noBorder: true, tight: true }));
+  parts.push(cell(15.62, 1.22, 5.09, 0.24, '', `Tipo de ambiente: ${cod(d.tpAmb, MAP_TP_AMB)}`, { center: true, noBorder: true, tight: true }));
+
+  // ─── DADOS DA NFS-e (0,30 / 1,48 / 20,40 × 2,84) ──────────────────────────
+  parts.push('<div class="box" style="left:0.30cm;top:1.48cm;width:20.40cm;height:2.84cm"></div>');
+  parts.push(cell(0.30, 1.48, 15.30, 0.77, 'CHAVE DE ACESSO DA NFS-E', fmtChave(d.chaveAcesso), { big: true, noBorder: true }));
+  parts.push(cell(0.30, 2.27, 5.09, 0.67, 'NÚMERO DA NFS-e', d.numeroNFSe, { noBorder: true }));
+  parts.push(cell(5.41, 2.27, 5.09, 0.67, 'COMPETÊNCIA DA NFS-e', d.competencia, { noBorder: true }));
+  parts.push(cell(10.51, 2.27, 5.09, 0.67, 'DATA E HORA DA EMISSÃO DA NFS-E', d.dhEmissao, { noBorder: true }));
+  parts.push(cell(0.30, 2.96, 5.09, 0.67, 'NÚMERO DA DPS', d.numeroDPS, { noBorder: true }));
+  parts.push(cell(5.41, 2.96, 5.09, 0.67, 'SÉRIE DA DPS', d.serieDPS, { noBorder: true }));
+  parts.push(cell(10.51, 2.96, 5.09, 0.67, 'DATA E HORA DA EMISSÃO DA DPS', d.dhEmissaoDps, { noBorder: true }));
+  parts.push(cell(0.30, 3.65, 5.09, 0.67, 'EMITENTE DA NFS-E', cod(d.tpEmit, MAP_TP_EMIT), { noBorder: true }));
+  parts.push(cell(5.41, 3.65, 5.09, 0.67, 'SITUAÇÃO DA NFS-E', trunc(d.cStat, 40), { noBorder: true }));
+  parts.push(cell(10.51, 3.65, 5.09, 0.67, 'FINALIDADE', trunc(d.finNFSe, 40), { noBorder: true }));
+  if (qrDataUrl) {
+    parts.push(`<img class="qr" src="${qrDataUrl}" style="left:17.48cm;top:1.67cm;width:1.52cm;height:1.52cm" alt="QR Code">`);
+  }
+  parts.push(cell(15.80, 3.36, 4.72, 0.68, '', 'Consulte pelo QR Code ou em nfse.gov.br', { center: true, noBorder: true }));
+
+  // ─── PRESTADOR / FORNECEDOR (sup 4,34) ────────────────────────────────────
+  parts.push(cell(0.30, 4.34, 5.09, 0.63, '', 'PRESTADOR / FORNECEDOR', { block: true }));
+  parts.push(cell(5.41, 4.34, 5.09, 0.63, 'CNPJ / CPF / NIF', fmtCnpjCpf(d.emitCnpj)));
+  parts.push(cell(10.51, 4.34, 5.09, 0.63, 'INDICADOR MUNICIPAL (INSCRIÇÃO)', d.emitIm));
+  parts.push(cell(15.62, 4.34, 5.09, 0.63, 'TELEFONE', d.emitTelefone));
+  parts.push(cell(0.30, 4.98, 10.19, 0.63, 'NOME / NOME EMPRESARIAL', trunc(d.emitNome, 80)));
+  parts.push(cell(10.51, 4.98, 5.09, 0.63, 'MUNICÍPIO / SIGLA UF', trunc([d.emitMunicipio, d.emitUF].filter(Boolean).join(' / '), 37)));
+  parts.push(cell(15.62, 4.98, 5.09, 0.63, 'CÓDIGO IBGE / CEP', [d.emitCMun, fmtCep(d.emitCep)].filter(Boolean).join(' / ')));
+  parts.push(cell(0.30, 5.62, 10.19, 0.63, 'ENDEREÇO', trunc(d.emitEndereco, 80)));
+  parts.push(cell(10.51, 5.62, 10.19, 0.63, 'E-MAIL', trunc(d.emitEmail, 80)));
+  parts.push(cell(0.30, 6.28, 5.09, 0.63, 'SIMPLES NACIONAL NA COMPETÊNCIA', trunc(cod(d.emitSimplesNac, MAP_SIMPLES), 40)));
+  parts.push(cell(5.41, 6.28, 5.09, 0.63, 'REGIME ESPECIAL DE TRIBUTAÇÃO', trunc(d.emitRegEspTrib, 37)));
+  parts.push(cell(10.51, 6.28, 10.19, 0.63, 'REGIME DE APURAÇÃO TRIBUTÁRIA PELO SN', trunc(d.emitRegApTribSN, 80)));
+
+  // ─── TOMADOR / ADQUIRENTE (sup 6,92) ──────────────────────────────────────
+  parts.push(cell(0.30, 6.92, 5.09, 0.63, '', 'TOMADOR / ADQUIRENTE', { block: true }));
+  parts.push(cell(5.41, 6.92, 5.09, 0.63, 'CNPJ / CPF / NIF', fmtCnpjCpf(d.tomaCnpj)));
+  parts.push(cell(10.51, 6.92, 5.09, 0.63, 'INDICADOR MUNICIPAL (INSCRIÇÃO)', d.tomaIm));
+  parts.push(cell(15.62, 6.92, 5.09, 0.63, 'TELEFONE', d.tomaTelefone));
+  parts.push(cell(0.30, 7.56, 10.19, 0.63, 'NOME / NOME EMPRESARIAL', trunc(d.tomaNome, 80)));
+  parts.push(cell(10.51, 7.56, 5.09, 0.63, 'MUNICÍPIO / SIGLA UF', trunc([d.tomaMunicipio, d.tomaUF].filter(Boolean).join(' / '), 37)));
+  parts.push(cell(15.62, 7.56, 5.09, 0.63, 'CÓDIGO IBGE / CEP', [d.tomaCMun, fmtCep(d.tomaCep)].filter(Boolean).join(' / ')));
+  parts.push(cell(0.30, 8.22, 10.19, 0.63, 'ENDEREÇO', trunc(d.tomaEndereco, 80)));
+  parts.push(cell(10.51, 8.22, 10.19, 0.63, 'E-MAIL', trunc(d.tomaEmail, 80)));
+
+  // ─── DESTINATÁRIO DA OPERAÇÃO (sup 8,86) ──────────────────────────────────
+  // Dados da reforma tributária (IBSCBS/dest). Quando o destinatário é o próprio
+  // tomador, a espec permite suprimir os campos — o quadro permanece, vazio.
+  parts.push(cell(0.30, 8.86, 5.09, 0.63, '', 'DESTINATÁRIO DA OPERAÇÃO', { block: true }));
+  parts.push(cell(5.41, 8.86, 5.09, 0.63, 'CNPJ / CPF / NIF', fmtCnpjCpf(d.destCnpj)));
+  parts.push(cell(10.51, 8.86, 5.09, 0.63, '', ''));
+  parts.push(cell(15.62, 8.86, 5.09, 0.63, 'TELEFONE', d.destTelefone));
+  parts.push(cell(0.30, 9.50, 10.19, 0.63, 'NOME / NOME EMPRESARIAL', trunc(d.destNome, 80)));
+  parts.push(cell(10.51, 9.50, 5.09, 0.63, 'MUNICÍPIO / SIGLA UF', ''));
+  parts.push(cell(15.62, 9.50, 5.09, 0.63, 'CÓDIGO IBGE / CEP', ''));
+  parts.push(cell(0.30, 10.16, 10.19, 0.63, 'ENDEREÇO', ''));
+  parts.push(cell(10.51, 10.16, 10.19, 0.63, 'E-MAIL', ''));
+
+  // ─── INTERMEDIÁRIO DA OPERAÇÃO (sup 10,80) ────────────────────────────────
+  parts.push(cell(0.30, 10.80, 5.09, 0.63, '', 'INTERMEDIÁRIO DA OPERAÇÃO', { block: true }));
+  parts.push(cell(5.41, 10.80, 5.09, 0.63, 'CNPJ / CPF / NIF', fmtCnpjCpf(d.intermCnpj)));
+  parts.push(cell(10.51, 10.80, 5.09, 0.63, 'INDICADOR MUNICIPAL (INSCRIÇÃO)', d.intermIm));
+  parts.push(cell(15.62, 10.80, 5.09, 0.63, 'TELEFONE', d.intermTelefone));
+  parts.push(cell(0.30, 11.44, 10.19, 0.63, 'NOME / NOME EMPRESARIAL', trunc(d.intermNome, 80)));
+  parts.push(cell(10.51, 11.44, 5.09, 0.63, 'MUNICÍPIO / SIGLA UF', ''));
+  parts.push(cell(15.62, 11.44, 5.09, 0.63, 'CÓDIGO IBGE / CEP', ''));
+  parts.push(cell(0.30, 12.09, 10.19, 0.63, 'ENDEREÇO', ''));
+  parts.push(cell(10.51, 12.09, 10.19, 0.63, 'E-MAIL', ''));
+
+  // ─── SERVIÇO PRESTADO (sup 12,74) ─────────────────────────────────────────
+  parts.push(cell(0.30, 12.74, 5.09, 0.63, '', 'SERVIÇO PRESTADO', { block: true }));
+  parts.push(cell(5.41, 12.74, 5.09, 0.63, 'CÓD. TRIBUTAÇÃO NACIONAL / MUNICIPAL', [d.cTribNac, d.cTribMun].filter(Boolean).join(' / ')));
+  parts.push(cell(10.51, 12.74, 5.09, 0.63, 'CÓDIGO DA NBS', d.cNBS));
+  parts.push(cell(15.62, 12.74, 5.09, 0.63, 'LOCAL DA PRESTAÇÃO', trunc(d.xLocPrestacao, 37)));
+  parts.push(cell(0.30, 13.39, 20.40, 0.40, 'TRIBUTAÇÃO NACIONAL / MUNICIPAL', trunc([d.xTribNac, d.xTribMun].filter(Boolean).join(' / '), 170), { tight: true }));
+  parts.push(cell(0.30, 13.79, 20.40, 0.63, 'DESCRIÇÃO DO SERVIÇO', trunc(d.xDescServ, 300), { wrap: true }));
+
+  // ─── TRIBUTAÇÃO MUNICIPAL — ISSQN (sup 14,43) ─────────────────────────────
+  parts.push(cell(0.30, 14.43, 5.09, 0.63, '', 'TRIBUTAÇÃO MUNICIPAL (ISSQN)', { block: true }));
+  parts.push(cell(5.41, 14.43, 5.09, 0.63, 'TRIBUTAÇÃO DO ISSQN', trunc(cod(d.tribISSQN, MAP_TRIB_ISSQN), 40)));
+  parts.push(cell(10.51, 14.43, 10.19, 0.63, 'MUNICÍPIO DE INCIDÊNCIA DO ISSQN', trunc(d.xMunicipioIncid, 80)));
+  parts.push(cell(0.30, 15.08, 5.09, 0.63, 'REGIME ESPECIAL DE TRIBUTAÇÃO', trunc(d.emitRegEspTrib, 37)));
+  parts.push(cell(5.41, 15.08, 5.09, 0.63, 'TIPO DE IMUNIDADE DO ISSQN', trunc(d.tpImunidade, 37)));
+  parts.push(cell(10.51, 15.08, 5.09, 0.63, 'SUSPENSÃO DA EXIGIBILIDADE', trunc(d.tpSuspensao, 37)));
+  parts.push(cell(15.62, 15.08, 5.09, 0.63, 'Nº DO PROCESSO DE SUSPENSÃO', trunc(d.nProcessoSusp, 30)));
+  parts.push(cell(0.30, 15.73, 5.09, 0.63, 'BENEFÍCIO MUNICIPAL', d.tpBM));
+  parts.push(cell(5.41, 15.73, 5.09, 0.63, 'VALOR DO BENEFÍCIO MUNICIPAL', fmtMoeda(d.vBM)));
+  parts.push(cell(10.51, 15.73, 5.09, 0.63, 'DEDUÇÕES / REDUÇÕES', fmtMoeda(d.vDR)));
+  parts.push(cell(15.62, 15.73, 5.09, 0.63, 'DESCONTO INCONDICIONADO', fmtMoeda(d.vDescIncond)));
+  parts.push(cell(0.30, 16.37, 5.09, 0.63, 'BC ISSQN', fmtMoeda(d.vBC)));
+  parts.push(cell(5.41, 16.37, 5.09, 0.63, 'ALÍQUOTA APLICADA', fmtPerc(d.pAliqAplic)));
+  parts.push(cell(10.51, 16.37, 5.09, 0.63, 'RETENÇÃO DO ISSQN', trunc(cod(d.tpRetISSQN, MAP_TP_RET_ISSQN), 25)));
+  parts.push(cell(15.62, 16.37, 5.09, 0.63, 'ISSQN APURADO', fmtMoeda(d.vISSQN)));
+
+  // ─── TRIBUTAÇÃO FEDERAL (sup 17,02) ───────────────────────────────────────
+  parts.push(cell(0.30, 17.02, 5.09, 0.63, '', 'TRIBUTAÇÃO FEDERAL (EXCETO CBS)', { block: true }));
+  parts.push(cell(5.41, 17.02, 5.09, 0.63, 'IRRF - RETIDO', fmtMoeda(d.vIRRF)));
+  parts.push(cell(10.51, 17.02, 5.09, 0.63, 'CONTRIB. PREVIDENCIÁRIA - RETIDA', fmtMoeda(d.vCP)));
+  parts.push(cell(15.62, 17.02, 5.09, 0.63, 'CONTRIB. SOCIAIS - RETIDAS (CSLL)', fmtMoeda(d.vCSLL)));
+  parts.push(cell(0.30, 17.67, 5.09, 0.63, 'PIS - RETENÇÃO PRÓPRIA', fmtMoeda(d.vPIS)));
+  parts.push(cell(5.41, 17.67, 5.09, 0.63, 'COFINS - RETENÇÃO PRÓPRIA', fmtMoeda(d.vCOFINS)));
+  parts.push(cell(10.51, 17.67, 10.19, 0.63, 'RETENÇÃO DE PIS/COFINS/CSLL', trunc(cod(d.tpRetPisCofins, MAP_TP_RET_PISCOFINS), 35)));
+
+  // ─── TRIBUTAÇÃO IBS / CBS (sup 18,32) ─────────────────────────────────────
+  // Bloco da reforma tributária. NFS-e emitidas antes da vigência do IBS/CBS não
+  // trazem esses dados: o quadro é impresso vazio, como no formulário oficial.
+  parts.push(cell(0.30, 18.32, 5.09, 0.63, '', 'TRIBUTAÇÃO IBS / CBS', { block: true }));
+  parts.push(cell(5.41, 18.32, 5.09, 0.63, 'CST / CLASSIFICAÇÃO TRIBUTÁRIA', [d.cstIbsCbs, d.cClassTrib].filter(Boolean).join(' / ')));
+  parts.push(cell(10.51, 18.32, 10.19, 0.63, 'LOCALIDADE DE INCIDÊNCIA', trunc(d.xLocalidadeIncid, 80)));
+  parts.push(cell(0.30, 18.96, 5.09, 0.63, 'EXCLUSÕES DA BASE DE CÁLCULO', fmtMoeda(d.vExclusoesBC)));
+  parts.push(cell(5.41, 18.96, 5.09, 0.63, 'BASE DE CÁLCULO APÓS EXCLUSÕES', fmtMoeda(d.vBCIbsCbs)));
+  parts.push(cell(10.51, 18.96, 5.09, 0.63, 'REDUÇÕES DE ALÍQUOTA', ''));
+  parts.push(cell(15.62, 18.96, 5.09, 0.63, 'ALÍQUOTAS IBS UF / MUNICIPAL', ''));
+  parts.push(cell(0.30, 19.61, 5.09, 0.63, 'ALÍQ. EFETIVA MUNICIPAL - IBS', fmtPerc(d.pAliqEfetMun)));
+  parts.push(cell(5.41, 19.61, 5.09, 0.63, 'VALOR APURADO MUNICIPAL - IBS', fmtMoeda(d.vIBSMun)));
+  parts.push(cell(10.51, 19.61, 5.09, 0.63, 'ALÍQ. EFETIVA ESTADUAL - IBS', fmtPerc(d.pAliqEfetUF)));
+  parts.push(cell(15.62, 19.61, 5.09, 0.63, 'VALOR APURADO ESTADUAL - IBS', fmtMoeda(d.vIBSUF)));
+  parts.push(cell(0.30, 20.26, 5.09, 0.63, 'VALOR TOTAL APURADO - IBS', fmtMoeda(d.vIBSTot)));
+  parts.push(cell(5.41, 20.26, 5.09, 0.63, 'ALÍQUOTA - CBS', fmtPerc(d.pCBS)));
+  parts.push(cell(10.51, 20.26, 5.09, 0.63, 'ALÍQUOTA EFETIVA - CBS', fmtPerc(d.pAliqEfetCBS)));
+  parts.push(cell(15.62, 20.26, 5.09, 0.63, 'VALOR TOTAL APURADO - CBS', fmtMoeda(d.vCBS)));
+
+  // ─── VALOR TOTAL DA NFS-E (sup 20,90) ─────────────────────────────────────
+  parts.push(cell(0.30, 20.90, 5.09, 0.67, '', 'VALOR TOTAL DA NFS-E', { block: true }));
+  parts.push(cell(5.41, 20.90, 5.09, 0.67, 'VALOR DA OPERAÇÃO / SERVIÇO', fmtMoeda(d.vServico)));
+  parts.push(cell(10.51, 20.90, 5.09, 0.67, 'DESCONTO INCONDICIONADO', fmtMoeda(d.vDescIncond)));
+  parts.push(cell(15.62, 20.90, 5.09, 0.67, 'DESCONTO CONDICIONADO', fmtMoeda(d.vDescCond)));
+  parts.push(cell(0.30, 21.59, 5.09, 0.67, 'TOTAL DAS RETENÇÕES (ISSQN / FEDERAIS)', fmtMoeda(d.vTotalRet)));
+  parts.push(cell(5.41, 21.59, 5.09, 0.67, 'VALOR LÍQUIDO DA NFS-e', fmtMoeda(d.vLiq), { big: true }));
+  parts.push(cell(10.51, 21.59, 5.09, 0.67, 'TOTAL DO IBS/CBS', fmtMoeda(d.vIbsCbsTot)));
+  parts.push(cell(15.62, 21.59, 5.09, 0.67, 'VALOR LÍQUIDO + IBS/CBS', fmtMoeda(d.vTotNF)));
+
+  // ─── INFORMAÇÕES COMPLEMENTARES (sup 22,27) ───────────────────────────────
+  const totTrib = [
+    d.vTotTribFed ? `Federais: R$ ${fmtMoeda(d.vTotTribFed)}` : '',
+    d.vTotTribEst ? `Estaduais: R$ ${fmtMoeda(d.vTotTribEst)}` : '',
+    d.vTotTribMun ? `Municipais: R$ ${fmtMoeda(d.vTotTribMun)}` : '',
+  ].filter(Boolean).join(' | ');
+  const infoCompl = [
+    d.xInfComp,
+    totTrib ? `Valor aproximado dos tributos — ${totTrib}` : '',
+  ].filter(Boolean).join('   ');
+  parts.push(cell(0.30, 22.27, 20.40, 0.40, '', 'INFORMAÇÕES COMPLEMENTARES', { block: true }));
+  parts.push(cell(0.30, 22.67, 20.40, 5.00, '', trunc(infoCompl, 2000), { wrap: true }));
+
+  const stampHtml = stamp
+    ? `<div class="stamp ${stamp === 'CANCELADA' ? 'canc' : 'subst'}">${stamp === 'CANCELADA' ? 'CANCELADA' : 'SUBSTITUÍDA'}</div>`
+    : '';
+
+  return `<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; width: 21cm; height: 29.7cm; position: relative;
+    font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .box { position: absolute; border: 0.4pt solid #000; }
+  .c {
+    position: absolute; border: 0.4pt solid #000;
+    padding: 0.03cm 0.07cm; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: flex-start;
+  }
+  .c.nb { border: none; }
+  .c.ctr { align-items: center; justify-content: center; text-align: center; }
+  .c.blk { background: #e6e6e6; justify-content: center; }
+  .c .l { font-size: 4.6pt; line-height: 1.05; letter-spacing: 0.1pt; color: #333; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c .v { font-size: 7pt; line-height: 1.15; margin-top: 0.04cm; }
+  .c.tight { padding: 0.01cm 0.06cm; }
+  .c.tight .l { font-size: 4pt; }
+  .c.tight .v { font-size: 5.6pt; line-height: 1.05; margin-top: 0.01cm; }
+  .c:not(.wrap) .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c.wrap .v { white-space: pre-wrap; word-break: break-word; }
+  .c.blk .v { font-size: 6.4pt; font-weight: bold; text-transform: uppercase; margin: 0; white-space: normal; }
+  .c.big .v { font-size: 9pt; font-weight: bold; letter-spacing: 0.2pt; }
+  .logo, .qr { position: absolute; object-fit: contain; }
+  .qr { border: 0.4pt solid #000; }
+  .titulo { font-size: 15pt; font-weight: bold; letter-spacing: 1pt; }
+  .subtitulo { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.4pt; }
+  .stamp {
+    position: absolute; top: 12cm; left: 0; width: 21cm;
+    text-align: center; font-size: 62pt; font-weight: bold;
+    transform: rotate(-28deg); opacity: 0.16; letter-spacing: 4pt;
+  }
+  .stamp.canc { color: #c00; }
+  .stamp.subst { color: #b45309; }
 </style>
-</head>
-<body>
-<div class="page">
-
-${cancelada ? '<div class="cancelada-stamp">CANCELADA</div>' : ''}
-
-<!-- CABEÇALHO -->
-<table>
-  <colgroup><col style="width:18%"/><col style="width:54%"/><col style="width:28%"/></colgroup>
-  <tr>
-    <td style="border:1px solid #999;text-align:center;vertical-align:middle;padding:4px 6px">${logoHtml}</td>
-    <td style="border-top:1px solid #999;border-bottom:1px solid #999;border-left:none;border-right:none;text-align:center;vertical-align:middle;padding:5px 4px">
-      <div style="font-size:11pt;font-weight:bold">DANFSe v1.0</div>
-      <div style="font-size:8.5pt;font-weight:bold">Documento Auxiliar da NFS-e</div>
-    </td>
-    <td style="border:1px solid #999;text-align:left;vertical-align:middle;padding:4px 6px;font-size:7pt">
-      <div style="font-weight:bold;font-size:7.5pt">${d(data.xLocEmi || data.emitMunicipio)}</div>
-      <div style="font-size:6.5pt">Secretaria Municipal da Fazenda</div>
-    </td>
-  </tr>
-</table>
-
-<!-- CHAVE DE ACESSO + QR CODE -->
-<table>
-  <colgroup><col style="width:19%"/><col style="width:19%"/><col style="width:24%"/><col style="width:38%"/></colgroup>
-  <tr>
-    <td colspan="3">
-      <span class="lbl">Chave de Acesso da NFS-e</span>
-      <span style="font-family:monospace;font-size:7pt;word-break:break-all;display:block;margin-top:1px">${data.chaveAcesso || '-'}</span>
-    </td>
-    <td rowspan="3" style="text-align:center;vertical-align:middle;padding:3px">
-      <div style="width:22mm;height:22mm;border:1px solid #999;margin:0 auto 3px;display:flex;align-items:center;justify-content:center;background:#fafafa">
-        <span style="font-size:5pt;color:#ccc">QR Code</span>
-      </div>
-      <div style="font-size:5.5pt;color:#444;line-height:1.5;text-align:left">
-        A autenticidade desta NFS-e pode ser verificada<br/>
-        pela leitura deste código QR ou pela consulta da<br/>
-        chave de acesso no portal nacional da NFS-e
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td><span class="lbl">Número da NFS-e</span><span class="val" style="font-size:9.5pt;font-weight:bold">${d(data.numeroNFSe)}</span></td>
-    <td><span class="lbl">Competência da NFS-e</span><span class="val">${d(data.competencia)}</span></td>
-    <td><span class="lbl">Data e Hora da emissão da NFS-e</span><span class="val">${d(data.dhEmissao)}</span></td>
-  </tr>
-  <tr>
-    <td><span class="lbl">Número da DPS</span><span class="val">${d(data.numeroDPS)}</span></td>
-    <td><span class="lbl">Série da DPS</span><span class="val">${d(data.serieDPS)}</span></td>
-    <td><span class="lbl">Data e Hora da emissão da DPS</span><span class="val">${d(data.dhEmissaoDps || data.dhEmissao)}</span></td>
-  </tr>
-</table>
-
-<!-- EMITENTE -->
-<table class="mt">
-  <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
-  <tr>
-    <td class="sec-hd">
-      <span class="sec-label">EMITENTE DA NFS-e</span>
-      <span class="sec-sub">Prestador do Serviço</span>
-    </td>
-    <td><span class="lbl">CNPJ / CPF / NIF</span><span class="val">${fmtCnpj(data.emitCnpj)}</span></td>
-    <td><span class="lbl">Inscrição Municipal</span><span class="val">${d(data.emitIm)}</span></td>
-    <td><span class="lbl">Telefone</span><span class="val">${fmtFone(data.emitTelefone)}</span></td>
-  </tr>
-  <tr>
-    <td colspan="3"><span class="lbl">Nome / Nome Empresarial</span><span class="val">${d(data.emitNome)}</span></td>
-    <td><span class="lbl">E-mail</span><span class="val" style="font-size:6.5pt">${d(data.emitEmail)}</span></td>
-  </tr>
-  <tr>
-    <td colspan="2"><span class="lbl">Endereço</span><span class="val">${d(data.emitEndereco)}</span></td>
-    <td><span class="lbl">Município</span><span class="val">${municipioEmit}</span></td>
-    <td><span class="lbl">CEP</span><span class="val">${fmtCep(data.emitCep)}</span></td>
-  </tr>
-  <tr>
-    <td colspan="2"><span class="lbl">Simples Nacional na Data de Competência</span><span class="val">${simpNac}</span></td>
-    <td colspan="2"><span class="lbl">Regime de Apuração Tributária pelo SN</span><span class="val">${regEspTribDesc}</span></td>
-  </tr>
-</table>
-
-<!-- TOMADOR -->
-<table class="mt">
-  <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
-  <tr>
-    <td class="sec-hd"><span class="sec-label">TOMADOR DO SERVIÇO</span></td>
-    <td><span class="lbl">CNPJ / CPF / NIF</span><span class="val">${fmtCnpj(data.tomaCnpj)}</span></td>
-    <td><span class="lbl">Inscrição Municipal</span><span class="val">${d(data.tomaIm)}</span></td>
-    <td><span class="lbl">Telefone</span><span class="val">${fmtFone(data.tomaTelefone)}</span></td>
-  </tr>
-  <tr>
-    <td colspan="3"><span class="lbl">Nome / Nome Empresarial</span><span class="val">${d(data.tomaNome)}</span></td>
-    <td><span class="lbl">E-mail</span><span class="val" style="font-size:6.5pt">${d(data.tomaEmail)}</span></td>
-  </tr>
-  <tr>
-    <td colspan="2"><span class="lbl">Endereço</span><span class="val">${d(data.tomaEndereco)}</span></td>
-    <td><span class="lbl">Município</span><span class="val">${municipioToma}</span></td>
-    <td><span class="lbl">CEP</span><span class="val">${fmtCep(data.tomaCep)}</span></td>
-  </tr>
-  <tr>
-    <td colspan="4" style="text-align:center;font-style:normal;font-size:6.5pt;background:#f0f0f0;letter-spacing:0.3px">
-      INTERMEDIÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-e
-    </td>
-  </tr>
-</table>
-
-<!-- SERVIÇO PRESTADO -->
-<table class="mt">
-  <colgroup><col style="width:34%"/><col style="width:22%"/><col style="width:22%"/><col style="width:22%"/></colgroup>
-  <tr><td colspan="4" class="sec">SERVIÇO PRESTADO</td></tr>
-  <tr>
-    <td>
-      <span class="lbl">Código de Tributação Nacional</span>
-      <span class="val">${d(data.cTribNac)}${data.xTribNac && data.xTribNac !== '-' ? ' - ' + data.xTribNac : ''}</span>
-    </td>
-    <td><span class="lbl">Código de Tributação Municipal</span><span class="val">${d(data.cTribMun)}${data.xTribMun && data.xTribMun !== '-' ? ' - ' + data.xTribMun : ''}</span></td>
-    <td><span class="lbl">Local da Prestação</span><span class="val">${d(data.xLocPrestacao)}</span></td>
-    <td><span class="lbl">País da Prestação</span><span class="val">-</span></td>
-  </tr>
-  <tr>
-    <td colspan="4"><span class="lbl">Descrição do Serviço</span><span class="val" style="white-space:pre-wrap">${d(data.xDescServ)}</span></td>
-  </tr>
-</table>
-
-<!-- TRIBUTAÇÃO MUNICIPAL -->
-<table class="mt">
-  <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
-  <tr><td colspan="4" class="sec">TRIBUTAÇÃO MUNICIPAL</td></tr>
-  <tr>
-    <td><span class="lbl">Tributação do ISSQN</span><span class="val">${tribISSQNDesc}</span></td>
-    <td><span class="lbl">País Resultado da Prestação do Serviço</span><span class="val">-</span></td>
-    <td><span class="lbl">Município de Incidência do ISSQN</span><span class="val">${d(data.xMunicipioIncid) === '-' ? 'Nenhum' : d(data.xMunicipioIncid)}</span></td>
-    <td><span class="lbl">Regime Especial de Tributação</span><span class="val">${regEspTribDesc === '-' ? 'Nenhum' : regEspTribDesc}</span></td>
-  </tr>
-  <tr>
-    <td><span class="lbl">Tipo de Imunidade</span><span class="val">-</span></td>
-    <td><span class="lbl">Suspensão da Exigibilidade do ISSQN</span><span class="val">Não</span></td>
-    <td><span class="lbl">Número Processo Suspensão</span><span class="val">-</span></td>
-    <td><span class="lbl">Benefício Municipal</span><span class="val">-</span></td>
-  </tr>
-  <tr>
-    <td><span class="lbl">Valor do Serviço</span><span class="val">${fmtMoeda(data.vServico)}</span></td>
-    <td><span class="lbl">Desconto Incondicionado</span><span class="val">-</span></td>
-    <td><span class="lbl">Total Deduções/Reduções</span><span class="val">-</span></td>
-    <td><span class="lbl">Cálculo do BM</span><span class="val">-</span></td>
-  </tr>
-  <tr>
-    <td><span class="lbl">BC ISSQN</span><span class="val">${fmtMoeda(data.vBC)}</span></td>
-    <td><span class="lbl">Alíquota Aplicada</span><span class="val">${pAliqDisplay}</span></td>
-    <td><span class="lbl">Retenção do ISSQN</span><span class="val">${retISSQN}</span></td>
-    <td><span class="lbl">ISSQN Apurado</span><span class="val">${vIssqnDisplay}</span></td>
-  </tr>
-</table>
-
-<!-- TRIBUTAÇÃO FEDERAL -->
-<table class="mt">
-  <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
-  <tr><td colspan="4" class="sec">TRIBUTAÇÃO FEDERAL</td></tr>
-  <tr>
-    <td><span class="lbl">IRRF</span><span class="val">${fmtMoeda(data.vIRRF)}</span></td>
-    <td><span class="lbl">Contribuição Previdenciária - Retida</span><span class="val">${fmtMoeda(data.vCP)}</span></td>
-    <td><span class="lbl">Contribuições Sociais - Retidas</span><span class="val">${fmtMoeda(data.vCSLL)}</span></td>
-    <td><span class="lbl">Descrição Contrib. Sociais - Retidas</span><span class="val">-</span></td>
-  </tr>
-  <tr>
-    <td><span class="lbl">PIS - Débito Apuração Própria</span><span class="val">${fmtMoeda(data.vPIS)}</span></td>
-    <td><span class="lbl">COFINS - Débito Apuração Própria</span><span class="val">${fmtMoeda(data.vCOFINS)}</span></td>
-    <td></td><td></td>
-  </tr>
-</table>
-
-<!-- VALOR TOTAL DA NFS-E -->
-<table class="mt">
-  <colgroup><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/><col style="width:25%"/></colgroup>
-  <tr><td colspan="4" class="sec">VALOR TOTAL DA NFS-E</td></tr>
-  <tr>
-    <td><span class="lbl">Valor do Serviço</span><span class="val">${fmtMoeda(data.vServico)}</span></td>
-    <td><span class="lbl">Desconto Condicionado</span><span class="val">-</span></td>
-    <td><span class="lbl">Desconto Incondicionado</span><span class="val">-</span></td>
-    <td><span class="lbl">ISSQN Retido</span><span class="val">-</span></td>
-  </tr>
-  <tr>
-    <td><span class="lbl">Total das Retenções Federais</span><span class="val">${fmtMoeda(data.vTotTribFed)}</span></td>
-    <td><span class="lbl">PIS/COFINS - Débito Apur. Própria</span><span class="val">-</span></td>
-    <td></td>
-    <td>
-      <span class="lbl" style="font-weight:bold">Valor Líquido da NFS-e</span>
-      <span class="val" style="font-size:9.5pt;font-weight:bold">${fmtMoeda(data.vLiq)}</span>
-    </td>
-  </tr>
-</table>
-
-<!-- TOTAIS APROXIMADOS DOS TRIBUTOS -->
-<table class="mt">
-  <colgroup><col style="width:34%"/><col style="width:33%"/><col style="width:33%"/></colgroup>
-  <tr><td colspan="3" class="sec ctr">TOTAIS APROXIMADOS DOS TRIBUTOS</td></tr>
-  <tr>
-    <td class="ctr"><span class="lbl">Federais</span><span class="val">${fmtMoeda(data.vTotTribFed)}</span></td>
-    <td class="ctr"><span class="lbl">Estaduais</span><span class="val">${fmtMoeda(data.vTotTribEst)}</span></td>
-    <td class="ctr"><span class="lbl">Municipais</span><span class="val">${fmtMoeda(data.vTotTribMun)}</span></td>
-  </tr>
-</table>
-
-<!-- INFORMAÇÕES COMPLEMENTARES -->
-<table class="mt">
-  <tr><td class="sec">INFORMAÇÕES COMPLEMENTARES</td></tr>
-  <tr><td style="min-height:14mm;font-size:7pt">${infCompHtml}</td></tr>
-</table>
-
-</div>
-</body>
-</html>`;
+${stampHtml}
+${parts.join('\n')}
+`;
 }

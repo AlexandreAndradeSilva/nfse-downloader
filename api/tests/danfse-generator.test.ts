@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { generateDanfse } from '../src/services/danfse-generator.js';
+import { describe, it, expect, afterAll } from 'vitest';
+import { generateDanfse, extractDanfseData, closeDanfseBrowser } from '../src/services/danfse-generator.js';
+
+afterAll(async () => { await closeDanfseBrowser(); });
 
 const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
 <NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
@@ -66,4 +68,45 @@ describe('danfse-generator', () => {
 </NFSe>`;
     await expect(generateDanfse(minimalXml)).resolves.toBeDefined();
   }, 30000);
+
+  it('duas gerações em paralelo reutilizam o mesmo browser', async () => {
+    const [a, b] = await Promise.all([generateDanfse(sampleXml), generateDanfse(sampleXml)]);
+    expect(a.subarray(0, 4).toString('latin1')).toBe('%PDF');
+    expect(b.subarray(0, 4).toString('latin1')).toBe('%PDF');
+  }, 60000);
+
+  it('aceita carimbo de cancelada e de substituída', async () => {
+    const canc = await generateDanfse(sampleXml, 'CANCELADA');
+    const subst = await generateDanfse(sampleXml, 'SUBSTITUIDA');
+    expect(canc.length).toBeGreaterThan(1000);
+    expect(subst.length).toBeGreaterThan(1000);
+    // O carimbo altera o conteúdo renderizado
+    expect(canc.length).not.toBe(subst.length);
+  }, 60000);
+
+  describe('extractDanfseData', () => {
+    it('preserva os 50 dígitos da chave de acesso (sem perda de precisão)', () => {
+      const d = extractDanfseData(sampleXml);
+      expect(d.chaveAcesso).toBe('31062001219068927000191230000000002523049575199774');
+      expect(d.chaveAcesso).toHaveLength(50);
+    });
+
+    it('formata competência como DD/MM/AAAA conforme a espec', () => {
+      expect(extractDanfseData(sampleXml).competencia).toBe('13/04/2023');
+    });
+
+    it('lê IRRF de vRetIRRF (nome do schema nacional) com fallback para vIRRF', () => {
+      const comRet = sampleXml.replace(
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>',
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><tribFed><vRetIRRF>43.00</vRetIRRF></tribFed>',
+      );
+      expect(extractDanfseData(comRet).vIRRF).toBe('43');
+
+      const legado = sampleXml.replace(
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>',
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><tribFed><vIRRF>21.50</vIRRF></tribFed>',
+      );
+      expect(extractDanfseData(legado).vIRRF).toBe('21.5');
+    });
+  });
 });
