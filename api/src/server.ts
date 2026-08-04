@@ -8,8 +8,24 @@ import { reportsRouter } from './routes/reports.js';
 import { notesRouter } from './routes/notes.js';
 
 const app = express();
-app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'] }));
+
+// Permite qualquer origem — necessário para acesso via tunnel (ngrok/cloudflare)
+app.use((_req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (_req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
+app.use(cors());
 app.use(express.json());
+app.use(express.text({ type: ['text/xml', 'application/xml'], limit: '10mb' }));
+app.use(express.raw({ type: 'application/octet-stream', limit: '10mb' }));
+
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/companies', companiesRouter);
 app.use('/api/sync', syncRouter);

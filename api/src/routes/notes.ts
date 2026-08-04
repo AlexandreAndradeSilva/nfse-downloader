@@ -3,6 +3,8 @@ import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { XMLParser } from 'fast-xml-parser';
 import { getCompany } from '../config-store.js';
+import { buildCancelledIndex } from '../services/xml-reader.js';
+import { importRawXml } from '../services/xml-saver.js';
 
 export const notesRouter = Router();
 
@@ -36,9 +38,14 @@ export interface NoteItem {
   dataEmissao: string; // DD/MM/AAAA
   valorServico: number;
   periodo: string;
+  cancelada: boolean;
 }
 
-function parseNote(xml: string, tipo: 'tomados' | 'prestados'): NoteItem | null {
+interface ParsedNote extends NoteItem {
+  chaveAcesso: string;
+}
+
+function parseNote(xml: string, tipo: 'tomados' | 'prestados'): ParsedNote | null {
   try {
     const parsed = parser.parse(xml);
     const inf = parsed?.NFSe?.infNFSe ?? {};
@@ -47,6 +54,10 @@ function parseNote(xml: string, tipo: 'tomados' | 'prestados'): NoteItem | null 
     const toma = dps?.toma ?? {};
     const vServPrest = dps?.valores?.vServPrest ?? {};
     const valoresNfse = inf?.valores ?? {};
+
+    // Extrai chaveAcesso do atributo Id (para cruzar com cancelamentos)
+    const idAttr = String(inf?.['@_Id'] ?? '');
+    const chaveAcesso = idAttr.startsWith('NFS') ? idAttr.slice(3) : idAttr;
 
     const dataEmissao = fmtDateBR(s(dps.dhEmi || inf.dhProc));
     const valorServico = n(vServPrest.vServ || valoresNfse.vBC);
@@ -60,6 +71,8 @@ function parseNote(xml: string, tipo: 'tomados' | 'prestados'): NoteItem | null 
         dataEmissao,
         valorServico,
         periodo: s(dps.dCompet),
+        cancelada: false,
+        chaveAcesso,
       };
     } else {
       // Emitida para: o tomador
@@ -70,6 +83,8 @@ function parseNote(xml: string, tipo: 'tomados' | 'prestados'): NoteItem | null 
         dataEmissao,
         valorServico,
         periodo: s(dps.dCompet),
+        cancelada: false,
+        chaveAcesso,
       };
     }
   } catch { return null; }
@@ -86,16 +101,52 @@ notesRouter.get('/:cnpj', (req, res) => {
   if (!company) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
 
   const companyDir = join(company.outputFolder, company.nome);
+  // Índice de notas canceladas (chaves extraídas dos nomes dos arquivos em eventos/canceladas/)
+  const cancelledChaves = buildCancelledIndex(company.outputFolder, company.nome);
   const allNotes: NoteItem[] = [];
 
   for (const period of safeDirRead(companyDir)) {
-    const tipoDir = join(companyDir, period, tipo);
+    // Ignora a pasta "eventos" (não é um período)
+    if (period === 'eventos') continue;
+
+    const periodDir = join(companyDir, period);
+
+    // Notas normais (ativas)
+    const tipoDir = join(periodDir, tipo);
     for (const file of safeDirRead(tipoDir)) {
       if (!file.endsWith('.xml')) continue;
       try {
         const xml = readFileSync(join(tipoDir, file), 'utf-8');
         const note = parseNote(xml, tipo);
-        if (note) allNotes.push(note);
+        if (note) {
+          note.cancelada = cancelledChaves.has(note.chaveAcesso);
+          const { chaveAcesso: _ch, ...noteItem } = note;
+          void _ch;
+          allNotes.push(noteItem);
+        }
+      } catch { /* pula */ }
+    }
+
+    // Notas canceladas (movidas para canceladas/)
+    const canceladasDir = join(periodDir, 'canceladas');
+    const cnpjEmp = cnpj.replace(/\D/g, '').padStart(14, '0');
+    for (const file of safeDirRead(canceladasDir)) {
+      if (!file.endsWith('.xml')) continue;
+      try {
+        const xml = readFileSync(join(canceladasDir, file), 'utf-8');
+        // Detecta tipo a partir do CNPJ do prestador comparado com a empresa
+        const parsedXml = parser.parse(xml);
+        const emitCnpj = String(parsedXml?.NFSe?.infNFSe?.emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
+        const tipoDetect = emitCnpj === cnpjEmp ? 'prestados' : 'tomados';
+        if (tipoDetect !== tipo) continue;
+
+        const note = parseNote(xml, tipo);
+        if (note) {
+          note.cancelada = true;
+          const { chaveAcesso: _ch, ...noteItem } = note;
+          void _ch;
+          allNotes.push(noteItem);
+        }
       } catch { /* pula */ }
     }
   }
@@ -112,4 +163,34 @@ notesRouter.get('/:cnpj', (req, res) => {
   const items = allNotes.slice((page - 1) * limit, page * limit);
 
   res.json({ items, total, page, totalPages, limit });
+});
+
+// POST /api/notes/:cnpj/import — importa XML de NFS-e manualmente (corpo: text/xml ou application/xml)
+notesRouter.post('/:cnpj/import', async (req, res) => {
+  const cnpj = req.params.cnpj.replace(/\D/g, '');
+  const company = getCompany(cnpj);
+  if (!company) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
+
+  const gerarPdf = req.query.gerarPdf === 'true';
+
+  let xmlStr: string;
+  if (typeof req.body === 'string' && req.body.trim().startsWith('<')) {
+    xmlStr = req.body;
+  } else if (Buffer.isBuffer(req.body)) {
+    xmlStr = req.body.toString('utf-8');
+  } else {
+    res.status(400).json({ error: 'Corpo da requisição deve ser o XML da NFS-e (Content-Type: text/xml)' });
+    return;
+  }
+
+  try {
+    const saved = await importRawXml(xmlStr, company.cnpj, company.outputFolder, company.nome, gerarPdf);
+    if (!saved) {
+      res.status(422).json({ error: 'XML não reconhecido como NFS-e válida' });
+      return;
+    }
+    res.json({ ok: true, tipo: saved.tipo, competencia: saved.competencia, filePath: saved.filePath });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
