@@ -118,6 +118,16 @@ describe('danfse-generator', () => {
       expect(extractDanfseData(sampleXml).cTribNac).toBe('14.02.01');
     });
 
+    it('restaura zeros à esquerda comidos pelo parser numérico', () => {
+      // O fast-xml-parser converte campos numéricos: 01400000 chega como 1400000
+      const semZeros = sampleXml
+        .replace('<CEP>30820220</CEP>', '<CEP>1400000</CEP>')
+        .replace('<cTribNac>140201</cTribNac>', '<cTribNac>70901</cTribNac>');
+      const d = extractDanfseData(semZeros);
+      expect(d.emitCep).toBe('01400-000');
+      expect(d.cTribNac).toBe('07.09.01');
+    });
+
     it('exibe valores monetários no formato do DANFSe', () => {
       const d = extractDanfseData(sampleXml);
       expect(d.vServico).toBe('R$ 2.866,67');

@@ -65,16 +65,23 @@ function fmtData(iso: string): string {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
+/**
+ * O parser converte campos numéricos e descarta zeros à esquerda (CEP 01400-000
+ * chega como 1400000). Restaura o comprimento antes de formatar.
+ */
 function fmtCnpjCpf(v: string): string {
   const dig = String(v ?? '').replace(/\D/g, '');
-  if (dig.length === 14) return dig.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-  if (dig.length === 11) return dig.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
-  return String(v ?? '');
+  if (!dig) return '';
+  // >= 12 dígitos só pode ser CNPJ (14); abaixo disso, CPF (11)
+  const pad = dig.length >= 12 ? dig.padStart(14, '0') : dig.padStart(11, '0');
+  if (pad.length === 14) return pad.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  return pad.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
 }
 
 function fmtCep(v: string): string {
   const dig = String(v ?? '').replace(/\D/g, '');
-  return dig.length === 8 ? dig.replace(/^(\d{5})(\d{3})$/, '$1-$2') : String(v ?? '');
+  if (!dig) return '';
+  return dig.padStart(8, '0').replace(/^(\d{5})(\d{3})$/, '$1-$2');
 }
 
 /** Valor monetário no formato do DANFSe: "R$ 1.234,56". Vazio se não houver valor. */
@@ -90,10 +97,12 @@ function percentual(v: unknown): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
 }
 
-/** cTribNac "170901" → "17.09.01" (formato do código de tributação nacional). */
+/** cTribNac "170901" → "17.09.01"; restaura o zero à esquerda comido pelo parser. */
 function fmtCodTrib(v: string): string {
   const dig = String(v ?? '').replace(/\D/g, '');
-  return dig.length === 6 ? `${dig.slice(0, 2)}.${dig.slice(2, 4)}.${dig.slice(4, 6)}` : String(v ?? '');
+  if (!dig || dig.length > 6) return String(v ?? '');
+  const p = dig.padStart(6, '0');
+  return `${p.slice(0, 2)}.${p.slice(2, 4)}.${p.slice(4, 6)}`;
 }
 
 /** Resolve o código IBGE para "Município - UF"; devolve o código se desconhecido. */
@@ -225,7 +234,8 @@ export function extractDanfseData(xmlStr: string): DanfseData {
     xTribNac: s(inf.xTribNac),
     cTribMun: s(cServ.cTribMun),
     xTribMun: s(inf.xTribMun),
-    xLocPrestacao: s(inf.xLocPrestacao) || municipio(s(locPrest.cLocPrestacao)),
+    // Prefere o código IBGE: traz "Município - UF"; xLocPrestacao vem sem a UF
+    xLocPrestacao: municipio(s(locPrest.cLocPrestacao)) || s(inf.xLocPrestacao),
     xPaisPrestacao: s(locPrest.cPaisPrestacao ?? ''),
     xDescServ: s(cServ.xDescServ),
 
