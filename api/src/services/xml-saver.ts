@@ -1,9 +1,9 @@
 import zlib from 'zlib';
 import { promisify } from 'util';
 import { writeFileSync, readFileSync, mkdirSync, existsSync, readdirSync, renameSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, dirname, basename, relative, sep } from 'path';
 import { XMLParser } from 'fast-xml-parser';
-import { generateDanfse } from './danfse-generator.js';
+import type { NsuIndex } from './nsu-index.js';
 import type { TipoDoc, TipoNota, EventoTipo } from '../types.js';
 
 const gunzip = promisify(zlib.gunzip);
@@ -24,6 +24,8 @@ export interface SavedXmlInfo {
   competencia: string;
   filePath: string;
   chaveAcesso: string;
+  dhEmi: string | null;   // ISO cru do XML (dps.dhEmi) — null quando ausente
+  dhProc: string | null;  // ISO cru do XML (infNFSe.dhProc; dhCanc/dhEvento p/ eventos)
   eventoTipo?: EventoTipo;
 }
 
@@ -33,104 +35,172 @@ function extractTagValue(xml: string, tag: string): string {
   return m?.[1]?.trim() ?? '';
 }
 
+function asObject(v: unknown): Record<string, unknown> {
+  return v !== null && typeof v === 'object' ? v as Record<string, unknown> : {};
+}
+
+/**
+ * Decodifica (base64+gzip), classifica e grava o documento. Nunca descarta:
+ * o filtro por período é decidido fora daqui (ver `isWithinRange`).
+ */
 export async function decodeAndSave(
   xmlBase64Gzip: string,
   nsu: number,
   cnpjEmpresa: string,
   outputFolder: string,
   nomeEmpresa: string,
-  dateRange?: DateRange,
-  gerarPdf = false
-): Promise<SavedXmlInfo | null> {
+  index: NsuIndex,
+): Promise<SavedXmlInfo> {
   const buffer = Buffer.from(xmlBase64Gzip, 'base64');
   const decompressed = await gunzip(buffer);
   const xmlStr = decompressed.toString('utf-8');
 
-  const parsed = parser.parse(xmlStr);
+  const parsed = asObject(parser.parse(xmlStr));
 
   // Detecta tipo pelo elemento raiz:
   // NFS-e → tem <NFSe> na raiz
-  // evento → qualquer outro elemento raiz (eCanc, eSubst, retEvento…)
-  if (!parsed?.NFSe) {
-    return decodeAndSaveEvento(xmlStr, parsed, nsu, outputFolder, nomeEmpresa, dateRange);
+  // evento → qualquer outro elemento raiz (evento, eCanc, eSubst, retEvento…)
+  if (!parsed.NFSe) {
+    return saveEvento(xmlStr, parsed, nsu, outputFolder, nomeEmpresa, index);
   }
 
-  // --- NFS-e normal ---
-  const infNFSe = parsed?.NFSe?.infNFSe ?? {};
-  const dps = infNFSe?.DPS?.infDPS ?? {};
+  return saveNfse(xmlStr, parsed, nsu, cnpjEmpresa, outputFolder, nomeEmpresa, index);
+}
+
+/** true se dhEmi OU dhProc cair no range; sem nenhuma data válida → true (não perder nota). */
+export function isWithinRange(
+  info: { dhEmi: string | null; dhProc: string | null },
+  range?: DateRange,
+): boolean {
+  if (!range || (!range.dataInicio && !range.dataFim)) return true;
+
+  const datas = [info.dhEmi, info.dhProc]
+    .filter((v): v is string => !!v)
+    .map(v => new Date(v))
+    .filter(d => !isNaN(d.getTime()));
+
+  // Nota sem data alguma (ou com datas ilegíveis) nunca é descartada pelo filtro
+  if (datas.length === 0) return true;
+
+  return datas.some(d =>
+    (!range.dataInicio || d >= range.dataInicio) &&
+    (!range.dataFim || d <= range.dataFim));
+}
+
+// --- NFS-e -----------------------------------------------------------------
+
+function saveNfse(
+  xmlStr: string,
+  parsed: Record<string, unknown>,
+  nsu: number,
+  cnpjEmpresa: string,
+  outputFolder: string,
+  nomeEmpresa: string,
+  index: NsuIndex,
+): SavedXmlInfo {
+  const infNFSe = asObject(asObject(parsed.NFSe).infNFSe);
 
   const chaveAcesso: string = (() => {
-    const idAttr = infNFSe?.['@_Id'] ?? '';
-    const str = String(idAttr);
+    const str = String(infNFSe['@_Id'] ?? '');
     return str.startsWith('NFS') ? str.slice(3) : (str || String(nsu));
   })();
 
   const competencia = extractCompetencia(infNFSe);
-  const dataEmissao = extractDataEmissao(dps, infNFSe);
-
-  if (dateRange) {
-    // Se filtro ativo mas não conseguimos extrair a data → pula (filtro estrito)
-    if (!dataEmissao) return null;
-    if (dateRange.dataInicio && dataEmissao < dateRange.dataInicio) return null;
-    if (dateRange.dataFim && dataEmissao > dateRange.dataFim) return null;
-  }
+  // Strings ISO cruas do XML — o parser converteria datas/números e perderia precisão
+  const dhEmi = extractTagValue(xmlStr, 'dhEmi') || null;
+  const dhProc = extractTagValue(xmlStr, 'dhProc') || null;
 
   // XML parser converte CNPJ com zero à esquerda para número (perde o 0)
   // padStart(14, '0') normaliza ambos antes de comparar
-  const cnpjPrestador = String(infNFSe?.emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
+  const cnpjPrestador = String(asObject(infNFSe.emit).CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
   const cnpjEmp = cnpjEmpresa.replace(/\D/g, '').padStart(14, '0');
   const tipo: TipoNota = cnpjPrestador === cnpjEmp ? 'prestados' : 'tomados';
 
-  const dir = join(outputFolder, nomeEmpresa, competencia, tipo);
-  mkdirSync(dir, { recursive: true });
+  const companyDir = join(outputFolder, nomeEmpresa);
 
-  // Nome do arquivo: "NFS {nNFSe}.xml" — padrão legível humano
-  // Colisão (arquivo já existe): usa "NFS 0{nNFSe}.xml"
-  // Fallback (sem nNFSe): NSU zero-padded
-  const nNFSe = extractTagValue(xmlStr, 'nNFSe') || extractTagValue(xmlStr, 'nDFSe');
-  let base = nNFSe ? `NFS ${nNFSe}` : String(nsu).padStart(9, '0');
-  let xmlPath = join(dir, `${base}.xml`);
-  if (existsSync(xmlPath) && nNFSe) {
-    base = `NFS 0${nNFSe}`;
-    xmlPath = join(dir, `${base}.xml`);
-  }
-
-  if (!existsSync(xmlPath)) {
-    writeFileSync(xmlPath, xmlStr, 'utf-8');
-  }
-
-  if (gerarPdf) {
-    const pdfPath = join(dir, `${base}.pdf`);
-    const localMarker = join(dir, `${base}.local`);
-    if (!existsSync(pdfPath)) {
-      let pdfBuf: Buffer | null = null;
-      try {
-        pdfBuf = await generateDanfse(xmlStr);
-      } catch (err) {
-        console.warn(`[AVISO] PDF não gerado para NSU ${nsu}: ${(err as Error).message}`);
-      }
-      if (pdfBuf) {
-        writeFileSync(pdfPath, pdfBuf);
-        // Marca PDFs gerados localmente para que "PDFs Oficiais" os identifique
-        writeFileSync(localMarker, '');
-      }
+  // Idempotência: a nota já foi gravada antes (inclusive se depois foi movida
+  // para canceladas/ ou substituidas/) → não regrava nem duplica.
+  const jaGravado = index.fileForChave(chaveAcesso);
+  if (jaGravado) {
+    const abs = join(companyDir, jaGravado);
+    if (existsSync(abs)) {
+      return { nsu, tipo, competencia, filePath: abs, chaveAcesso, dhEmi, dhProc };
     }
   }
 
-  return { nsu, tipo, competencia, filePath: xmlPath, chaveAcesso };
+  const dir = join(companyDir, competencia, tipo);
+  mkdirSync(dir, { recursive: true });
+
+  const xmlPath = resolveXmlPath(dir, fileBaseName(xmlStr, chaveAcesso, nsu), chaveAcesso);
+  if (!existsSync(xmlPath)) {
+    writeFileSync(xmlPath, xmlStr, 'utf-8');
+  }
+  index.registerFile(chaveAcesso, toIndexPath(companyDir, xmlPath));
+
+  return { nsu, tipo, competencia, filePath: xmlPath, chaveAcesso, dhEmi, dhProc };
 }
 
-async function decodeAndSaveEvento(
+/**
+ * Nome base do arquivo: "NFS {nNFSe}" — padrão legível humano.
+ * Sem nNFSe, usa o final da chave de acesso (estável entre execuções) e,
+ * em último caso, o NSU.
+ */
+function fileBaseName(xmlStr: string, chaveAcesso: string, nsu: number): string {
+  const nNFSe = extractTagValue(xmlStr, 'nNFSe') || extractTagValue(xmlStr, 'nDFSe');
+  if (nNFSe) return `NFS ${nNFSe}`;
+  if (chaveAcesso) return `NFS ${chaveAcesso.slice(-9)}`;
+  return `NFS ${String(nsu).padStart(9, '0')}`;
+}
+
+/**
+ * Resolve o caminho final do XML sem nunca sobrescrever nota de outra chave.
+ * Notas de prestadores diferentes colidem o tempo todo em tomados/ (cada
+ * prestador numera a partir do 1), então o desempate usa o final da chave.
+ */
+function resolveXmlPath(dir: string, base: string, chaveAcesso: string): string {
+  const primeiro = join(dir, `${base}.xml`);
+  if (!existsSync(primeiro) || arquivoTemChave(primeiro, chaveAcesso)) return primeiro;
+
+  const sufixo = chaveAcesso.slice(-8) || 'dup';
+  let candidato = join(dir, `${base} (${sufixo}).xml`);
+  // Desempate extra (chaves com os mesmos 8 dígitos finais) — nunca perder a nota
+  for (let i = 2; existsSync(candidato) && !arquivoTemChave(candidato, chaveAcesso); i++) {
+    candidato = join(dir, `${base} (${sufixo}-${i}).xml`);
+  }
+  return candidato;
+}
+
+/** Confere se o XML em disco é exatamente a nota da chave informada. */
+function arquivoTemChave(path: string, chaveAcesso: string): boolean {
+  if (!chaveAcesso) return false;
+  try {
+    return chaveIdRegex(chaveAcesso).test(readFileSync(path, 'utf-8'));
+  } catch {
+    return false;
+  }
+}
+
+function chaveIdRegex(chaveAcesso: string): RegExp {
+  const escapada = chaveAcesso.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`Id=["']NFS${escapada}["']`);
+}
+
+/** Caminho relativo à pasta da empresa, sempre com "/" — formato do índice. */
+function toIndexPath(companyDir: string, absPath: string): string {
+  return relative(companyDir, absPath).split(sep).join('/');
+}
+
+// --- Eventos ---------------------------------------------------------------
+
+function saveEvento(
   xmlStr: string,
   parsed: Record<string, unknown>,
   nsu: number,
   outputFolder: string,
   nomeEmpresa: string,
-  dateRange?: DateRange
-): Promise<SavedXmlInfo | null> {
-  let eventoTipo: EventoTipo = 'outro';
-
-  // Usa regex no XML bruto para evitar perda de precisão em chaves numéricas de 44 dígitos
+  index: NsuIndex,
+): SavedXmlInfo {
+  // Usa regex no XML bruto para evitar perda de precisão em chaves numéricas longas
   // que o fast-xml-parser converte para float e perde os últimos dígitos.
   const chNFSe = extractTagValue(xmlStr, 'chNFSe') || extractTagValue(xmlStr, 'chNFSeAnulada');
   // nDFSe é o número da nota no formato do portal ADN; nNFSe é alternativo
@@ -139,35 +209,9 @@ async function decodeAndSaveEvento(
     || extractTagValue(xmlStr, 'dhEvento')
     || extractTagValue(xmlStr, 'dhSubst');
 
-  // Determina tipo do evento. O portal ADN usa <evento> como raiz com elementos
-  // filhos que identificam o tipo: <e101101> = cancelamento, <e110115> = substituição.
-  // Também suporta formatos legados <eCanc>/<eSubst>.
-  const rootKey = Object.keys(parsed).find(k => !k.startsWith('?') && !k.startsWith('@')) ?? '';
-  if (rootKey === 'eCanc' || parsed?.eCanc) {
-    eventoTipo = 'cancelamento';
-  } else if (rootKey === 'eSubst' || parsed?.eSubst) {
-    eventoTipo = 'substituicao';
-  } else if (
-    xmlStr.includes('<e101101>') ||
-    xmlStr.includes('Cancelamento de NFS-e') ||
-    xmlStr.includes('cancelamento de NFS-e')
-  ) {
-    eventoTipo = 'cancelamento';
-  } else if (xmlStr.includes('<e110115>') || xmlStr.includes('Substitui')) {
-    eventoTipo = 'substituicao';
-  } else {
-    // Última tentativa: código numérico no atributo Id do infEvento
-    const idEvt = xmlStr.match(/Id="EVT[^"]*?(\d{6})\d{3}"/)?.[1] ?? '';
-    if (idEvt === '101101' || idEvt === '110111') eventoTipo = 'cancelamento';
-    else if (idEvt === '110115') eventoTipo = 'substituicao';
-  }
+  const eventoTipo = detectEventoTipo(xmlStr, parsed);
 
   const dataEvento = dhEvento ? new Date(dhEvento) : null;
-  if (dateRange && dataEvento && !isNaN(dataEvento.getTime())) {
-    if (dateRange.dataInicio && dataEvento < dateRange.dataInicio) return null;
-    if (dateRange.dataFim && dataEvento > dateRange.dataFim) return null;
-  }
-
   const now = new Date();
   const competencia = (dataEvento && !isNaN(dataEvento.getTime()))
     ? `${String(dataEvento.getMonth() + 1).padStart(2, '0')}${dataEvento.getFullYear()}`
@@ -189,21 +233,90 @@ async function decodeAndSaveEvento(
     writeFileSync(xmlPath, xmlStr, 'utf-8');
   }
 
-  // Se é cancelamento e temos a chave, move a nota original para a pasta canceladas/
-  if (eventoTipo === 'cancelamento' && chNFSe) {
-    await moveCancelledNote(chNFSe, outputFolder, nomeEmpresa);
+  // O evento NÃO é registrado por chave no índice: a chave dele aponta para a
+  // nota original, e sobrescrever esse mapeamento perderia o arquivo da nota.
+  if (chNFSe && (eventoTipo === 'cancelamento' || eventoTipo === 'substituicao')) {
+    const destino = eventoTipo === 'cancelamento' ? 'canceladas' : 'substituidas';
+    moveNotaOriginal(chNFSe, outputFolder, nomeEmpresa, destino, index);
   }
 
-  return { nsu, tipo: 'eventos', competencia: subpasta, filePath: xmlPath, chaveAcesso: chNFSe || String(nsu), eventoTipo };
+  return {
+    nsu,
+    tipo: 'eventos',
+    competencia: subpasta,
+    filePath: xmlPath,
+    chaveAcesso: chNFSe || String(nsu),
+    dhEmi: null,
+    dhProc: dhEvento || null,
+    eventoTipo,
+  };
 }
 
 /**
- * Move a nota cancelada de tomados/ ou prestados/ para MMYYYY/canceladas/
- * e regenera o PDF com carimbo de CANCELADA.
+ * Determina tipo do evento. O portal ADN usa <evento> como raiz com elementos
+ * filhos que identificam o tipo: <e101101> = cancelamento, <e110115> = substituição.
+ * Também suporta formatos legados <eCanc>/<eSubst>.
  */
-async function moveCancelledNote(chNFSe: string, outputFolder: string, nomeEmpresa: string): Promise<void> {
+function detectEventoTipo(xmlStr: string, parsed: Record<string, unknown>): EventoTipo {
+  const rootKey = Object.keys(parsed).find(k => !k.startsWith('?') && !k.startsWith('@')) ?? '';
+  if (rootKey === 'eCanc' || parsed.eCanc) return 'cancelamento';
+  if (rootKey === 'eSubst' || parsed.eSubst) return 'substituicao';
+  if (
+    xmlStr.includes('<e101101>') ||
+    xmlStr.includes('Cancelamento de NFS-e') ||
+    xmlStr.includes('cancelamento de NFS-e')
+  ) return 'cancelamento';
+  if (xmlStr.includes('<e110115>') || xmlStr.includes('Substitui')) return 'substituicao';
+
+  // Última tentativa: código numérico no atributo Id do infEvento
+  const idEvt = xmlStr.match(/Id="EVT[^"]*?(\d{6})\d{3}"/)?.[1] ?? '';
+  if (idEvt === '101101' || idEvt === '110111') return 'cancelamento';
+  if (idEvt === '110115') return 'substituicao';
+  return 'outro';
+}
+
+/**
+ * Move a nota original de tomados/ ou prestados/ para MMYYYY/canceladas/ ou
+ * MMYYYY/substituidas/ e atualiza o índice. O PDF antigo é descartado — o
+ * carimbo correto é aplicado quando o usuário pedir os PDFs.
+ */
+function moveNotaOriginal(
+  chNFSe: string,
+  outputFolder: string,
+  nomeEmpresa: string,
+  destino: 'canceladas' | 'substituidas',
+  index: NsuIndex,
+): void {
   const companyDir = join(outputFolder, nomeEmpresa);
-  if (!existsSync(companyDir)) return;
+  const rel = index.fileForChave(chNFSe);
+  const src = rel ? join(companyDir, rel) : findXmlByChaveOnDisk(companyDir, chNFSe);
+  if (!src || !existsSync(src)) return;
+
+  const periodDir = dirname(dirname(src));            // .../MMYYYY
+  const destDir = join(periodDir, destino);
+  if (dirname(src) === destDir) return;               // já está no destino
+
+  mkdirSync(destDir, { recursive: true });
+  const dst = join(destDir, basename(src));
+  if (!existsSync(dst)) {
+    try {
+      renameSync(src, dst);
+    } catch {
+      return; // arquivo em uso — mantém o índice apontando para o original
+    }
+  }
+  index.moveFile(chNFSe, toIndexPath(companyDir, dst));
+
+  const pdfSrc = src.replace(/\.xml$/, '.pdf');
+  if (existsSync(pdfSrc)) {
+    try { unlinkSync(pdfSrc); } catch { /* regenerado pelo botão de PDFs */ }
+  }
+}
+
+/** Fallback para pastas anteriores ao índice: varre o disco procurando a chave. */
+function findXmlByChaveOnDisk(companyDir: string, chNFSe: string): string | null {
+  if (!existsSync(companyDir) || !chNFSe) return null;
+  const idRegex = chaveIdRegex(chNFSe);
 
   for (const period of safeReaddir(companyDir)) {
     if (period === 'eventos') continue;
@@ -215,41 +328,12 @@ async function moveCancelledNote(chNFSe: string, outputFolder: string, nomeEmpre
         if (!file.endsWith('.xml')) continue;
         const src = join(tipoDir, file);
         try {
-          const xmlChk = readFileSync(src, 'utf-8');
-          if (!xmlChk.includes(chNFSe)) continue;
-        } catch {
-          continue;
-        }
-
-        const canceladasDir = join(periodDir, 'canceladas');
-        mkdirSync(canceladasDir, { recursive: true });
-        const dst = join(canceladasDir, file);
-        if (!existsSync(dst)) {
-          try {
-            renameSync(src, dst);
-          } catch { /* arquivo em uso? ignora */ }
-        }
-
-        // Remove PDF antigo e regenera com carimbo CANCELADA
-        const pdfSrc = src.replace(/\.xml$/, '.pdf');
-        const pdfDst = dst.replace(/\.xml$/, '.pdf');
-        if (existsSync(pdfSrc)) {
-          try {
-            unlinkSync(pdfSrc);
-          } catch { /* ignora */ }
-        }
-        if (!existsSync(pdfDst)) {
-          try {
-            const xmlContent = readFileSync(dst, 'utf-8');
-            const pdfBuf = await generateDanfse(xmlContent, true);
-            const localMarker = pdfDst.replace(/\.pdf$/, '.local');
-            writeFileSync(pdfDst, pdfBuf);
-            writeFileSync(localMarker, '');
-          } catch { /* PDF opcional — ignora falha */ }
-        }
+          if (idRegex.test(readFileSync(src, 'utf-8'))) return src;
+        } catch { /* arquivo ilegível — segue procurando */ }
       }
     }
   }
+  return null;
 }
 
 function safeReaddir(dir: string): string[] {
@@ -261,26 +345,11 @@ function safeReaddir(dir: string): string[] {
   }
 }
 
-function extractDataEmissao(dps: Record<string, unknown>, infNFSe: Record<string, unknown>): Date | null {
-  // Tenta dhEmi (data/hora da emissão), depois dhProc, depois dCompet (fallback)
-  const candidates = [
-    dps?.dhEmi,
-    infNFSe?.dhProc,
-    dps?.dCompet,     // formato YYYY-MM-DD — mais simples, sem fuso horário
-  ];
-  for (const raw of candidates) {
-    if (!raw) continue;
-    const d = new Date(String(raw));
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-}
-
 function extractCompetencia(infNFSe: Record<string, unknown>): string {
-  const dps = (infNFSe?.DPS as Record<string, unknown>)?.infDPS as Record<string, unknown>;
+  const dps = asObject(asObject(infNFSe.DPS).infDPS);
   // Prioridade: dhEmi (data de emissão) > dhProc (data de processamento) > dCompet (competência do serviço)
   // Nota: dCompet pode ser mês anterior à emissão (serviço prestado em maio, emitido em junho)
-  const raw = String(dps?.dhEmi ?? infNFSe?.dhProc ?? dps?.dCompet ?? new Date().toISOString());
+  const raw = String(dps.dhEmi ?? infNFSe.dhProc ?? dps.dCompet ?? new Date().toISOString());
   const match = raw.match(/^(\d{4})-(\d{2})/);
   if (match) return `${match[2]}${match[1]}`;
   return `${String(new Date().getMonth() + 1).padStart(2, '0')}${new Date().getFullYear()}`;
@@ -289,56 +358,18 @@ function extractCompetencia(infNFSe: Record<string, unknown>): string {
 /**
  * Importa um XML de NFS-e já decodificado diretamente para a pasta da empresa.
  * Útil para notas baixadas manualmente do portal que não vieram via sync automático.
+ * O índice é responsabilidade do chamador (carregar e salvar) — mesma regra do
+ * `decodeAndSave`, para que uma importação em lote não releia o índice a cada nota.
  */
 export async function importRawXml(
   xmlStr: string,
   cnpjEmpresa: string,
   outputFolder: string,
   nomeEmpresa: string,
-  gerarPdf = false
+  index: NsuIndex,
 ): Promise<SavedXmlInfo | null> {
-  const parsed = parser.parse(xmlStr);
-  if (!parsed?.NFSe) return null;
+  const parsed = asObject(parser.parse(xmlStr));
+  if (!parsed.NFSe) return null;
 
-  const infNFSe = parsed?.NFSe?.infNFSe ?? {};
-  const dps = infNFSe?.DPS?.infDPS ?? {};
-
-  const chaveAcesso: string = (() => {
-    const idAttr = String(infNFSe?.['@_Id'] ?? '');
-    return idAttr.startsWith('NFS') ? idAttr.slice(3) : (idAttr || '');
-  })();
-
-  const competencia = extractCompetencia(infNFSe);
-  const dataEmissao = extractDataEmissao(dps, infNFSe);
-  void dataEmissao; // sem filtro de data na importação manual
-
-  const emit = infNFSe?.emit ?? {};
-  const cnpjPrestador = String(emit.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
-  const cnpjEmp = cnpjEmpresa.replace(/\D/g, '').padStart(14, '0');
-  const tipo: TipoNota = cnpjPrestador === cnpjEmp ? 'prestados' : 'tomados';
-
-  const dir = join(outputFolder, nomeEmpresa, competencia, tipo);
-  mkdirSync(dir, { recursive: true });
-
-  const nNFSe = extractTagValue(xmlStr, 'nNFSe') || extractTagValue(xmlStr, 'nDFSe');
-  let base = nNFSe ? `NFS ${nNFSe}` : (chaveAcesso ? chaveAcesso.slice(-9) : String(Date.now()));
-  let xmlPath = join(dir, `${base}.xml`);
-  if (existsSync(xmlPath) && nNFSe) {
-    base = `NFS 0${nNFSe}`;
-    xmlPath = join(dir, `${base}.xml`);
-  }
-
-  writeFileSync(xmlPath, xmlStr, 'utf-8');
-
-  if (gerarPdf) {
-    const pdfPath = join(dir, `${base}.pdf`);
-    if (!existsSync(pdfPath)) {
-      try {
-        const pdfBuf = await generateDanfse(xmlStr);
-        writeFileSync(pdfPath, pdfBuf);
-      } catch { /* PDF opcional */ }
-    }
-  }
-
-  return { nsu: 0, tipo, competencia, filePath: xmlPath, chaveAcesso };
+  return saveNfse(xmlStr, parsed, 0, cnpjEmpresa, outputFolder, nomeEmpresa, index);
 }

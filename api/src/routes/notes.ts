@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { readdirSync, readFileSync, existsSync } from 'fs';
+import { readdirSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { XMLParser } from 'fast-xml-parser';
 import { getCompany } from '../config-store.js';
 import { buildCancelledIndex } from '../services/xml-reader.js';
 import { importRawXml } from '../services/xml-saver.js';
+import { NsuIndex } from '../services/nsu-index.js';
 
 export const notesRouter = Router();
 
@@ -171,8 +172,6 @@ notesRouter.post('/:cnpj/import', async (req, res) => {
   const company = getCompany(cnpj);
   if (!company) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
 
-  const gerarPdf = req.query.gerarPdf === 'true';
-
   let xmlStr: string;
   if (typeof req.body === 'string' && req.body.trim().startsWith('<')) {
     xmlStr = req.body;
@@ -184,11 +183,16 @@ notesRouter.post('/:cnpj/import', async (req, res) => {
   }
 
   try {
-    const saved = await importRawXml(xmlStr, company.cnpj, company.outputFolder, company.nome, gerarPdf);
+    const companyDir = join(company.outputFolder, company.nome);
+    mkdirSync(companyDir, { recursive: true });
+    const index = NsuIndex.load(companyDir);
+
+    const saved = await importRawXml(xmlStr, company.cnpj, company.outputFolder, company.nome, index);
     if (!saved) {
       res.status(422).json({ error: 'XML não reconhecido como NFS-e válida' });
       return;
     }
+    index.save();
     res.json({ ok: true, tipo: saved.tipo, competencia: saved.competencia, filePath: saved.filePath });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

@@ -1,12 +1,16 @@
+import { mkdirSync } from 'fs';
+import { join, relative, sep } from 'path';
 import type { Company, AdnDistribuicaoResponse } from '../types.js';
-import { decodeAndSave, type DateRange } from './xml-saver.js';
+import { decodeAndSave, isWithinRange, type DateRange } from './xml-saver.js';
+import { NsuIndex } from './nsu-index.js';
 
 // Máximo de itens do lote processados em paralelo (XML + PDF simultâneos)
 const LOTE_CONCURRENCY = 4;
 
 export interface SyncOptions {
   dateRange?: DateRange;
-  gerarPdf: boolean;
+  /** @deprecated PDF saiu do fluxo de sync — gerado sob demanda. Ignorado aqui. */
+  gerarPdf?: boolean;
   startNsu?: number;
 }
 
@@ -26,8 +30,12 @@ export async function runSync(
   company: Company,
   fetchFn: FetchFn,
   onProgress: LogFn,
-  options: SyncOptions = { gerarPdf: false }
+  options: SyncOptions = {}
 ): Promise<SyncResult> {
+  const companyDir = join(company.outputFolder, company.nome);
+  mkdirSync(companyDir, { recursive: true });
+  const index = NsuIndex.load(companyDir);
+
   let currentNsu = options.startNsu !== undefined ? options.startNsu : company.lastNsu + 1;
   let prestados = 0;
   let tomados = 0;
@@ -63,7 +71,7 @@ export async function runSync(
     }
 
     const lote = response.LoteDFe ?? [];
-    // Processa itens em batches paralelos — cada item pode baixar XML + PDF ao mesmo tempo
+    // Processa itens do lote em batches paralelos (decodificação gzip concorrente)
     for (let i = 0; i < lote.length; i += LOTE_CONCURRENCY) {
       const batch = lote.slice(i, i + LOTE_CONCURRENCY);
       const results = await Promise.allSettled(
@@ -74,8 +82,7 @@ export async function runSync(
             company.cnpj,
             company.outputFolder,
             company.nome,
-            options.dateRange,
-            options.gerarPdf
+            index
           )
         )
       );
@@ -88,9 +95,19 @@ export async function runSync(
           onProgress(`[ERRO] NSU ${nsu}: ${(result.reason as Error).message}`);
         } else {
           const saved = result.value;
-          if (saved === null) {
+          index.set(nsu, {
+            chave: saved.chaveAcesso,
+            tipo: saved.tipo,
+            dhEmi: saved.dhEmi,
+            dhProc: saved.dhProc,
+            arquivo: relative(companyDir, saved.filePath).split(sep).join('/'),
+            eventoTipo: saved.eventoTipo,
+          });
+
+          // O documento sempre é gravado; o período só decide como ele é contado/reportado
+          if (!isWithinRange(saved, options.dateRange)) {
             pulados++;
-            onProgress(`NSU ${nsu} → fora do período, pulado`);
+            onProgress(`NSU ${nsu} → salvo (fora do período)`);
           } else if (saved.tipo === 'eventos') {
             eventos++;
             const tipoEvt = saved.eventoTipo === 'cancelamento' ? 'cancelamento'
@@ -99,14 +116,15 @@ export async function runSync(
           } else {
             if (saved.tipo === 'prestados') prestados++;
             else tomados++;
-            const pdfNote = options.gerarPdf ? ' + PDF' : '';
-            onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo${pdfNote}`);
+            onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo`);
           }
         }
         if (nsu >= currentNsu) currentNsu = nsu + 1;
       }
     }
   }
+
+  index.save();
 
   return { prestados, tomados, eventos, pulados, errors, lastNsu: currentNsu - 1 };
 }
