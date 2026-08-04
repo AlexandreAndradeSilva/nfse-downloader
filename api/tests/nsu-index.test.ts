@@ -45,6 +45,17 @@ describe('NsuIndex', () => {
     expect(idx.nextKnownNsu(13)).toBeUndefined();
   });
 
+  it('evento não sequestra a busca por chave da nota original', () => {
+    mkdirSync(DIR, { recursive: true });
+    const idx = NsuIndex.load(DIR);
+    const chave = 'N'.repeat(50);
+    idx.set(10, { chave, tipo: 'prestados', dhEmi: null, dhProc: null, arquivo: '072026/prestados/NFS 9.xml' });
+    // o evento de cancelamento carrega a chave da NOTA, não uma própria
+    idx.set(11, { chave, tipo: 'eventos', dhEmi: null, dhProc: null, arquivo: 'eventos/canceladas/9-canc.xml', eventoTipo: 'cancelamento' });
+    expect(idx.findByChave(chave)!.nsu).toBe(10);
+    expect(idx.fileForChave(chave)).toBe('072026/prestados/NFS 9.xml');
+  });
+
   it('registerFile + fileForChave evitam duplicar arquivo por chave', () => {
     mkdirSync(DIR, { recursive: true });
     const idx = NsuIndex.load(DIR);

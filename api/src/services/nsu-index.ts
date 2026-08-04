@@ -52,8 +52,12 @@ export class NsuIndex {
 
   set(nsu: number, rec: NsuRecord): void {
     this.nsus.set(nsu, rec);
-    this.byChave.set(rec.chave, nsu);
-    if (rec.tipo !== 'eventos') this.files.set(rec.chave, rec.arquivo);
+    // A `chave` de um evento é a da NOTA que ele afeta, não a de um artefato próprio.
+    // Indexá-la faria o evento sequestrar as buscas por chave da nota original.
+    if (rec.tipo !== 'eventos') {
+      this.byChave.set(rec.chave, nsu);
+      this.files.set(rec.chave, rec.arquivo);
+    }
   }
 
   findByChave(chave: string): { nsu: number; rec: NsuRecord } | undefined {
