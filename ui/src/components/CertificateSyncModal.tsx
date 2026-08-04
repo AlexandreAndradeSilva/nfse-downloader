@@ -12,7 +12,8 @@ export interface CertSyncParams {
   outputFolder: string;
   dataInicio: string;
   dataFim: string;
-  gerarPdf: boolean;
+  prestados: boolean;
+  tomados: boolean;
 }
 
 interface PickedCert {
@@ -49,7 +50,8 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
   const [outputFolder, setOutputFolder] = useState('');
   const [dataInicio, setDataInicio] = useState(firstOfMonth);
   const [dataFim, setDataFim] = useState(today);
-  const [gerarPdf, setGerarPdf] = useState(true);
+  const [prestados, setPrestados] = useState(true);
+  const [tomados, setTomados] = useState(true);
   const [pfxPassword, setPfxPassword] = useState('');
   const [browsingFolder, setBrowsingFolder] = useState(false);
 
@@ -99,6 +101,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
     if (!cert) return;
     if (!outputFolder.trim()) { setErrorMsg('Selecione a pasta de destino.'); return; }
     if (cert.needsPassword && !pfxPassword.trim()) { setErrorMsg('Informe a senha do arquivo .pfx.'); return; }
+    if (!prestados && !tomados) { setErrorMsg('Selecione ao menos um tipo de nota.'); return; }
     onSync({
       cnpj: cert.cnpj,
       nome: cert.nome,
@@ -107,7 +110,8 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
       outputFolder,
       dataInicio,
       dataFim,
-      gerarPdf,
+      prestados,
+      tomados,
     });
   };
 
@@ -202,10 +206,24 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
               </div>
               <p className="text-xs text-gray-400">Deixe em branco para baixar todos os documentos disponíveis.</p>
 
-              <div className="flex items-center gap-2">
-                <input id="gerarPdfCert" type="checkbox" checked={gerarPdf} onChange={e => setGerarPdf(e.target.checked)} className="w-4 h-4" />
-                <label htmlFor="gerarPdfCert" className="text-sm font-medium text-gray-700">Gerar PDF (DANFSE) junto com XML</label>
-              </div>
+              <fieldset>
+                <legend className="block text-sm font-medium text-gray-700 mb-1">Tipos de nota</legend>
+                <div className="flex items-center gap-4">
+                  <label htmlFor="tipoPrestadosCert" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input id="tipoPrestadosCert" type="checkbox" checked={prestados}
+                      onChange={e => setPrestados(e.target.checked)} className="w-4 h-4" />
+                    Prestados
+                  </label>
+                  <label htmlFor="tipoTomadosCert" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input id="tipoTomadosCert" type="checkbox" checked={tomados}
+                      onChange={e => setTomados(e.target.checked)} className="w-4 h-4" />
+                    Tomados
+                  </label>
+                </div>
+              </fieldset>
+              <p className="text-xs text-gray-400">
+                Baixa apenas os XMLs — use "Gerar PDFs" depois para emitir os DANFSe.
+              </p>
 
               {errorMsg && <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-700">{errorMsg}</div>}
 

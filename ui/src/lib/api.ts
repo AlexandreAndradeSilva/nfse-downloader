@@ -62,6 +62,8 @@ export async function deleteCompany(cnpj: string): Promise<void> {
   await fetch(`${API}/api/companies/${cnpj}`, { method: 'DELETE' });
 }
 
+export type Situacao = 'ativa' | 'cancelada' | 'substituida';
+
 export interface NoteItem {
   numeroNFSe: string;
   cnpj: string;
@@ -69,6 +71,37 @@ export interface NoteItem {
   dataEmissao: string;
   valorServico: number;
   periodo: string;
+  cancelada?: boolean;
+  situacao?: Situacao;
+}
+
+export interface GeneratePdfsOptions {
+  dataInicio: string;
+  dataFim: string;
+  tipo: 'todos' | 'prestados' | 'tomados';
+  incluirEncerradas: boolean;   // canceladas e substituídas, com carimbo
+}
+
+/** Dispara a geração de DANFSe no backend e acompanha o progresso por SSE. */
+export function startGeneratePdfs(
+  cnpj: string,
+  opts: GeneratePdfsOptions,
+  onEvent: (event: SyncProgress) => void,
+  onClose: () => void,
+): EventSource {
+  const params = new URLSearchParams();
+  if (opts.dataInicio) params.set('dataInicio', opts.dataInicio);
+  if (opts.dataFim) params.set('dataFim', opts.dataFim);
+  params.set('tipo', opts.tipo);
+  params.set('incluirEncerradas', String(opts.incluirEncerradas));
+  const es = new EventSource(`${API}/api/notes/${cnpj}/gerar-pdfs?${params.toString()}`);
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data as string) as SyncProgress;
+    onEvent(data);
+    if (data.type === 'done' || data.type === 'error') { es.close(); onClose(); }
+  };
+  es.onerror = () => { es.close(); onClose(); };
+  return es;
 }
 
 export interface NotesPage {
@@ -104,7 +137,8 @@ export function startSync(
   const params = new URLSearchParams();
   if (opts.dataInicio) params.set('dataInicio', opts.dataInicio);
   if (opts.dataFim) params.set('dataFim', opts.dataFim);
-  if (opts.gerarPdf) params.set('gerarPdf', 'true');
+  const tipos = [opts.prestados && 'prestados', opts.tomados && 'tomados'].filter(Boolean).join(',');
+  params.set('tipos', tipos || 'prestados,tomados');
   const qs = params.toString();
   const es = new EventSource(`${API}/api/sync/${cnpj}${qs ? '?' + qs : ''}`);
   es.onmessage = (e) => {

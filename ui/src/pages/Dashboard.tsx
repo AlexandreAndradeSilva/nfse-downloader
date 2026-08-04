@@ -337,8 +337,23 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                   <div style={{
                     color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
                     fontWeight: 600, fontFamily: 'monospace', fontSize: 13,
+                    display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
                   }}>
-                    {note.numeroNFSe || '-'}
+                    <span style={{ textDecoration: note.situacao && note.situacao !== 'ativa' ? 'line-through' : undefined }}>
+                      {note.numeroNFSe || '-'}
+                    </span>
+                    {note.situacao === 'cancelada' && (
+                      <span title="Nota cancelada" style={{
+                        fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4,
+                        background:'rgba(239,68,68,.15)', color:'#f87171', flexShrink:0,
+                      }}>CANC</span>
+                    )}
+                    {note.situacao === 'substituida' && (
+                      <span title="Nota substituída" style={{
+                        fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4,
+                        background:'rgba(251,191,36,.15)', color:'#fbbf24', flexShrink:0,
+                      }}>SUBST</span>
+                    )}
                   </div>
                   <div style={{ minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>

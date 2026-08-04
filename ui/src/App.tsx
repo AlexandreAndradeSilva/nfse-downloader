@@ -8,6 +8,7 @@ import { Empresas } from './pages/Empresas';
 import { AddCompanyModal } from './components/AddCompanyModal';
 import { SyncModal, type SyncOptions } from './components/SyncModal';
 import { CertificateSyncModal, type CertSyncParams } from './components/CertificateSyncModal';
+import { GeneratePdfsModal } from './components/GeneratePdfsModal';
 import { listCompanies, createCompany, updateCompany, startSync } from './lib/api';
 import type { Company } from './types';
 import './index.css';
@@ -22,6 +23,7 @@ function AppContent() {
   const [syncing, setSyncing] = useState<Record<string, boolean>>({});
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [certModalOpen, setCertModalOpen] = useState(false);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [syncModalCnpj, setSyncModalCnpj] = useState<string | null>(null);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [activeCnpj, setActiveCnpj] = useState<string | null>(null);
@@ -65,7 +67,10 @@ function AppContent() {
       else await createCompany(data);
       await load();
     } catch { return; }
-    runSync(params.cnpj, { dataInicio: params.dataInicio, dataFim: params.dataFim, gerarPdf: params.gerarPdf });
+    runSync(params.cnpj, {
+      dataInicio: params.dataInicio, dataFim: params.dataFim,
+      prestados: params.prestados, tomados: params.tomados,
+    });
   };
 
   const handleSave = async (data: Omit<Company, 'lastSync'>) => {
@@ -80,7 +85,7 @@ function AppContent() {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', minHeight:'100vh' }}>
-      <TopNav page={page} onPageChange={setPage} onBuscarNotas={() => setCertModalOpen(true)} />
+      <TopNav page={page} onPageChange={setPage} onBuscarNotas={() => setCertModalOpen(true)} onGerarPdfs={() => setPdfModalOpen(true)} />
 
       <div style={{ display: page === 'dashboard' ? 'contents' : 'none' }}>
         <Dashboard companies={companies} activeCnpj={activeCnpj} refreshKey={statsRefreshKey} syncing={syncing} />
@@ -94,6 +99,7 @@ function AppContent() {
         />
       </div>
 
+      <GeneratePdfsModal open={pdfModalOpen} companies={companies} defaultCnpj={activeCnpj} onClose={() => setPdfModalOpen(false)} />
       <CertificateSyncModal open={certModalOpen} onClose={() => setCertModalOpen(false)} onSync={handleCertSync} />
       <AddCompanyModal open={addModalOpen} onClose={() => { setAddModalOpen(false); setEditingCompany(null); }} onSave={handleSave} initial={editingCompany} />
       <SyncModal open={syncModalCnpj !== null} companyName={syncingCompany?.nome ?? ''} onClose={() => setSyncModalCnpj(null)} onSync={handleSyncStart} />

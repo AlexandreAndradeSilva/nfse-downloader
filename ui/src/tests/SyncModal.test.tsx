@@ -13,7 +13,8 @@ describe('SyncModal', () => {
     expect(screen.getByText(/Sincronizar: Empresa X/)).toBeInTheDocument();
     expect(screen.getByLabelText(/data início/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/data fim/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/gerar pdf/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/prestados/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/tomados/i)).toBeInTheDocument();
   });
 
   it('chama onSync com os valores preenchidos', () => {
@@ -25,7 +26,8 @@ describe('SyncModal', () => {
     expect(onSync).toHaveBeenCalledWith({
       dataInicio: '2026-01-01',
       dataFim: '2026-06-30',
-      gerarPdf: true,
+      prestados: true,
+      tomados: true,
     });
   });
 
@@ -40,5 +42,29 @@ describe('SyncModal', () => {
       dataInicio: '',
       dataFim: '',
     }));
+  });
+
+  it('marca prestados e tomados por padrão e remove a opção de PDF', () => {
+    render(<SyncModal open={true} companyName="Empresa X" onClose={vi.fn()} onSync={vi.fn()} />);
+    expect(screen.getByLabelText(/prestados/i)).toBeChecked();
+    expect(screen.getByLabelText(/tomados/i)).toBeChecked();
+    expect(screen.queryByLabelText(/gerar pdf/i)).not.toBeInTheDocument();
+  });
+
+  it('envia apenas o tipo marcado', () => {
+    const onSync = vi.fn();
+    render(<SyncModal open={true} companyName="Empresa X" onClose={vi.fn()} onSync={onSync} />);
+    fireEvent.click(screen.getByLabelText(/tomados/i));
+    fireEvent.click(screen.getByRole('button', { name: /sincronizar/i }));
+    expect(onSync).toHaveBeenCalledWith(expect.objectContaining({ prestados: true, tomados: false }));
+  });
+
+  it('exige ao menos um tipo marcado', () => {
+    const onSync = vi.fn();
+    render(<SyncModal open={true} companyName="Empresa X" onClose={vi.fn()} onSync={onSync} />);
+    fireEvent.click(screen.getByLabelText(/prestados/i));
+    fireEvent.click(screen.getByLabelText(/tomados/i));
+    fireEvent.click(screen.getByRole('button', { name: /sincronizar/i }));
+    expect(onSync).not.toHaveBeenCalled();
   });
 });
