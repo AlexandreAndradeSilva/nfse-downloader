@@ -46,10 +46,9 @@ syncRouter.get('/:cnpj', async (req, res) => {
     return;
   }
 
-  const { dataInicio, dataFim, gerarPdf } = req.query as Record<string, string>;
+  const { dataInicio, dataFim } = req.query as Record<string, string>;
   const comFiltroData = !!(dataInicio || dataFim);
   const options: SyncOptions = {
-    gerarPdf: gerarPdf === 'true',
     // Com filtro de data: re-scan desde o NSU 1 para encontrar documentos antigos do período.
     // Sem filtro: incremental a partir do último NSU processado.
     startNsu: comFiltroData ? 1 : undefined,
@@ -93,7 +92,7 @@ syncRouter.get('/:cnpj', async (req, res) => {
     const eventosMsg = result.eventos > 0 ? `, ${result.eventos} evento(s)` : '';
     const msgFinal = semNovos && !comFiltroData
       ? `Nenhuma nota nova desde a última sincronização (NSU atual: ${nsuParaSalvar})`
-      : `Concluído: ${result.prestados} prestados, ${result.tomados} tomados${eventosMsg}, ${result.pulados} pulados, ${result.errors} erros`;
+      : `Concluído: ${result.prestados} prestados, ${result.tomados} tomados${eventosMsg}, ${result.foraPeriodo} fora do período, ${result.errors} erros`;
 
     send('done', { message: msgFinal, ...result });
   } catch (err) {
