@@ -49,6 +49,10 @@ function fmtCompetencia(dCompet: string): string {
   return `${month}/${year}`;
 }
 
+function buildEndereco(xLgr: string, nro: string, xCpl: string, xBairro: string): string {
+  return [xLgr, nro, xCpl, xBairro].map(s).filter(Boolean).join(', ');
+}
+
 function extractDanfseData(xmlStr: string): DanfseData {
   const parsed = parser.parse(xmlStr);
   const inf = parsed?.NFSe?.infNFSe ?? {};
@@ -58,62 +62,94 @@ function extractDanfseData(xmlStr: string): DanfseData {
   const serv = dps?.serv ?? {};
   const cServ = serv?.cServ ?? {};
   const locPrest = serv?.locPrest ?? {};
+  const infoCompl = serv?.infoCompl ?? {};
   const valoresDps = dps?.valores ?? {};
   const trib = valoresDps?.trib ?? {};
-  const tribMun = (trib as Record<string, unknown>)?.tribMun ?? {} as Record<string, unknown>;
-  const tribFed = (trib as Record<string, unknown>)?.tribFed ?? {} as Record<string, unknown>;
-  const piscofins = (tribFed as Record<string, unknown>)?.piscofins ?? {} as Record<string, unknown>;
-  const totTrib = ((trib as Record<string, unknown>)?.totTrib as Record<string, unknown>)?.vTotTrib ?? {} as Record<string, unknown>;
+  const tribMun = trib?.tribMun ?? {};
+  const tribFed = trib?.tribFed ?? {};
+  const piscofins = tribFed?.piscofins ?? {};
+  const totTrib = trib?.totTrib?.vTotTrib ?? {};
   const vServPrest = valoresDps?.vServPrest ?? {};
   const valoresNfse = inf?.valores ?? {};
+  // Emitente — campos em inf.emit e dps.prest
   const emit = inf?.emit ?? {};
   const enderNac = emit?.enderNac ?? {};
+  // Tomador — atenção: end.xLgr/nro/xCpl/xBairro ficam em end (não em end.endNac)
   const tomaEnd = toma?.end ?? {};
   const tomaEndNac = tomaEnd?.endNac ?? {};
 
   const idAttr = s(inf?.['@_Id'] ?? '');
   const chaveAcesso = idAttr.startsWith('NFS') ? idAttr.slice(3) : idAttr;
 
-  const emitEndereco = [s(enderNac.xLgr), s(enderNac.nro), s(enderNac.xBairro)]
-    .filter(Boolean).join(', ');
-  const tomaEndereco = [s(tomaEnd.xLgr), s(tomaEnd.nro), s(tomaEnd.xBairro)]
-    .filter(Boolean).join(', ');
+  // Endereço emitente
+  const emitEndereco = buildEndereco(s(enderNac.xLgr), s(enderNac.nro), s(enderNac.xCpl), s(enderNac.xBairro));
+  const emitMunicipio = s(inf.xLocEmi) || s(enderNac.cMun);
+  const emitUF = s(enderNac.UF);
+
+  // Endereço tomador — xLgr/nro/xCpl/xBairro são filhos diretos de end
+  const tomaEndereco = buildEndereco(s(tomaEnd.xLgr), s(tomaEnd.nro), s(tomaEnd.xCpl), s(tomaEnd.xBairro));
+  const tomaMunicipio = s(tomaEndNac.cMun);
+  const tomaCep = s(tomaEndNac.CEP);
+  const tomaUF = s(tomaEndNac.UF) || s(tomaEnd.endNac?.UF ?? '');
+
+  // Inscrição Municipal — prest tem IM mais confiável que emit
+  const emitIm = s(prest?.IM ?? emit?.IM ?? '');
+
+  const regEspTrib: Record<string, string> = {
+    '0': 'Nenhum', '1': 'Microempresa Municipal', '2': 'Estimativa',
+    '3': 'Sociedade de Profissionais', '4': 'Cooperativa',
+    '5': 'Microempresário Individual', '6': 'Microempresário e Empresa de Pequeno Porte',
+  };
 
   return {
-    chaveAcesso: chaveAcesso || (s(valoresNfse.xOutInf).match(/\d{50}/)?.[0] ?? '-'),
+    chaveAcesso: chaveAcesso || (s(valoresNfse.xOutInf).match(/\d{44,50}/)?.[0] ?? '-'),
     numeroNFSe: s(inf.nNFSe),
     competencia: fmtCompetencia(s(dps.dCompet)),
-    dhEmissao: fmtDate(s(dps.dhEmi) || s(inf.dhProc)),
+    dhEmissao: fmtDate(s(inf.dhProc) || s(dps.dhEmi)),
+    dhEmissaoDps: fmtDate(s(dps.dhEmi)),
     numeroDPS: s(dps.nDPS),
     serieDPS: s(dps.serie),
+    // Emitente
     emitCnpj: s(emit.CNPJ),
-    emitIm: s(emit.IM),
-    emitTelefone: s(emit.fone),
+    emitIm,
+    emitTelefone: s(emit.fone || prest.fone),
     emitNome: s(emit.xNome),
-    emitEmail: s(emit.email),
+    emitEmail: s(emit.email || prest.email),
     emitEndereco,
-    emitMunicipio: s(inf.xLocEmi) || s(enderNac.cMun),
+    emitMunicipio,
+    emitUF,
     emitCep: s(enderNac.CEP),
-    emitSimplesNac: s(prest?.regTrib?.opSimpNac),
-    tomaCnpj: s(toma.CNPJ),
+    emitSimplesNac: s(prest?.regTrib?.opSimpNac ?? ''),
+    emitRegEspTrib: regEspTrib[s(prest?.regTrib?.regEspTrib ?? '')] ?? '',
+    // Tomador
+    tomaCnpj: s(toma.CNPJ || toma.CPF),
+    tomaIm: s(toma?.IM ?? ''),
     tomaNome: s(toma.xNome),
     tomaEndereco,
-    tomaMunicipio: s(tomaEndNac.cMun),
-    tomaCep: s(tomaEndNac.CEP),
+    tomaMunicipio,
+    tomaUF,
+    tomaCep,
     tomaTelefone: s(toma.fone),
     tomaEmail: s(toma.email),
+    // Serviço
     cTribNac: s(cServ.cTribNac),
     xTribNac: s(inf.xTribNac),
     cTribMun: s(cServ.cTribMun),
     xTribMun: s(inf.xTribMun),
     xDescServ: s(cServ.xDescServ),
+    cNBS: s(cServ.cNBS),
     xLocPrestacao: s(inf.xLocPrestacao) || s(locPrest.cLocPrestacao),
+    xLocEmi: s(inf.xLocEmi),
+    xMunicipioIncid: s(inf.xLocIncid) || s(inf.xLocEmi),
+    xInfComp: s(infoCompl.xInfComp),
+    // Tributação ISSQN
     tribISSQN: s(tribMun.tribISSQN),
     tpRetISSQN: s(tribMun.tpRetISSQN),
     vBC: s(valoresNfse.vBC),
+    pAliqAplic: s(valoresNfse.pAliqAplic),
     pISSQN: s(tribMun.pAliq),
     vISSQN: calcISSQN(s(valoresNfse.vBC), s(tribMun.pAliq)),
-    // Tributação federal
+    // Tributação Federal
     vPIS: s(piscofins.vPis),
     vCOFINS: s(piscofins.vCofins),
     tpRetPisCofins: s(piscofins.tpRetPisCofins),
@@ -124,15 +160,16 @@ function extractDanfseData(xmlStr: string): DanfseData {
     vTotTribFed: s(totTrib.vTotTribFed),
     vTotTribEst: s(totTrib.vTotTribEst),
     vTotTribMun: s(totTrib.vTotTribMun),
-    vServico: s(vServPrest.vServ),
+    // Valores
+    vServico: s(vServPrest.vServ) || s(valoresNfse.vBC),
     vLiq: s(valoresNfse.vLiq),
-    xMunicipioIncid: s(inf.xLocIncid) || s(inf.xLocEmi),
+    vISSQNNfse: s(valoresNfse.vISSQN),
   };
 }
 
-export async function generateDanfse(xmlStr: string): Promise<Buffer> {
+export async function generateDanfse(xmlStr: string, cancelada = false): Promise<Buffer> {
   const data = extractDanfseData(xmlStr);
-  const html = buildDanfseHtml(data, LOGO_DATA_URL);
+  const html = buildDanfseHtml(data, LOGO_DATA_URL, cancelada);
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -140,6 +177,7 @@ export async function generateDanfse(xmlStr: string): Promise<Buffer> {
   });
   try {
     const page = await browser.newPage();
+    await page.setViewport({ width: 794, height: 1122, deviceScaleFactor: 1 });
     await page.setContent(html, { waitUntil: 'load' });
     const pdf = await page.pdf({
       format: 'A4',
