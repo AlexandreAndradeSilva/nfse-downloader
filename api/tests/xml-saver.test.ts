@@ -57,6 +57,8 @@ describe('xml-saver', () => {
     expect(result?.tipo).toBe('prestados');
     expect(result?.competencia).toBe('062026');
     expect(existsSync(result!.filePath)).toBe(true);
+    // Nome do arquivo segue o padrão "NFS {nNFSe}.xml" (o XML de teste tem <nNFSe>1</nNFSe>)
+    expect(existsSync(join(OUTPUT, 'Empresa Teste', '062026', 'prestados', 'NFS 1.xml'))).toBe(true);
   });
 
   it('classifica como tomado quando emitente != cnpj da empresa', async () => {

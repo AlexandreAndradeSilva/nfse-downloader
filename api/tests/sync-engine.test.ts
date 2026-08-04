@@ -74,6 +74,7 @@ describe('sync-engine', () => {
 
     expect(result.prestados).toBe(1);
     expect(result.tomados).toBe(0);
+    expect(result.eventos).toBe(0);
     expect(result.errors).toBe(0);
     expect(result.lastNsu).toBe(101);
     expect(events.some(e => e.includes('NSU 101'))).toBe(true);

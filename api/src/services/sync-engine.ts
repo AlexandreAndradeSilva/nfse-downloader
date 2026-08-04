@@ -1,18 +1,19 @@
 import type { Company, AdnDistribuicaoResponse } from '../types.js';
 import { decodeAndSave, type DateRange } from './xml-saver.js';
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-// Delay entre chamadas à API ADN para evitar rate limiting (429)
-const DELAY_ENTRE_REQUESTS_MS = 400;
+// Máximo de itens do lote processados em paralelo (XML + PDF simultâneos)
+const LOTE_CONCURRENCY = 4;
 
 export interface SyncOptions {
   dateRange?: DateRange;
   gerarPdf: boolean;
+  startNsu?: number;
 }
 
 export interface SyncResult {
   prestados: number;
   tomados: number;
+  eventos: number;
   pulados: number;
   errors: number;
   lastNsu: number;
@@ -27,17 +28,16 @@ export async function runSync(
   onProgress: LogFn,
   options: SyncOptions = { gerarPdf: false }
 ): Promise<SyncResult> {
-  let currentNsu = company.lastNsu + 1;
+  let currentNsu = options.startNsu !== undefined ? options.startNsu : company.lastNsu + 1;
   let prestados = 0;
   let tomados = 0;
+  let eventos = 0;
   let pulados = 0;
   let errors = 0;
   let consecutiveErrors = 0;
-  const MAX_CONSECUTIVE_ERRORS = 3;
+  const MAX_CONSECUTIVE_ERRORS = 10;
 
   while (true) {
-    await sleep(DELAY_ENTRE_REQUESTS_MS);
-
     let response: AdnDistribuicaoResponse;
     try {
       response = await fetchFn(currentNsu, company.cnpj);
@@ -63,35 +63,50 @@ export async function runSync(
     }
 
     const lote = response.LoteDFe ?? [];
-    for (const item of lote) {
-      const nsu = item.NSU;
-      try {
-        const saved = await decodeAndSave(
-          item.ArquivoXml,
-          nsu,
-          company.cnpj,
-          company.outputFolder,
-          company.nome,
-          options.dateRange,
-          options.gerarPdf
-        );
-        if (saved === null) {
-          pulados++;
-          onProgress(`NSU ${nsu} → fora do período, pulado`);
+    // Processa itens em batches paralelos — cada item pode baixar XML + PDF ao mesmo tempo
+    for (let i = 0; i < lote.length; i += LOTE_CONCURRENCY) {
+      const batch = lote.slice(i, i + LOTE_CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(item =>
+          decodeAndSave(
+            item.ArquivoXml,
+            item.NSU,
+            company.cnpj,
+            company.outputFolder,
+            company.nome,
+            options.dateRange,
+            options.gerarPdf
+          )
+        )
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const nsu = batch[j].NSU;
+        const result = results[j];
+        if (result.status === 'rejected') {
+          errors++;
+          onProgress(`[ERRO] NSU ${nsu}: ${(result.reason as Error).message}`);
         } else {
-          if (saved.tipo === 'prestados') prestados++;
-          else tomados++;
-          const pdfNote = options.gerarPdf ? ' + PDF' : '';
-          onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo${pdfNote}`);
+          const saved = result.value;
+          if (saved === null) {
+            pulados++;
+            onProgress(`NSU ${nsu} → fora do período, pulado`);
+          } else if (saved.tipo === 'eventos') {
+            eventos++;
+            const tipoEvt = saved.eventoTipo === 'cancelamento' ? 'cancelamento'
+              : saved.eventoTipo === 'substituicao' ? 'substituição' : 'evento';
+            onProgress(`NSU ${nsu} → ${tipoEvt} (${saved.competencia}) salvo`);
+          } else {
+            if (saved.tipo === 'prestados') prestados++;
+            else tomados++;
+            const pdfNote = options.gerarPdf ? ' + PDF' : '';
+            onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo${pdfNote}`);
+          }
         }
         if (nsu >= currentNsu) currentNsu = nsu + 1;
-      } catch (err) {
-        errors++;
-        onProgress(`[ERRO] NSU ${nsu}: ${(err as Error).message}`);
-        currentNsu = nsu + 1;
       }
     }
   }
 
-  return { prestados, tomados, pulados, errors, lastNsu: currentNsu - 1 };
+  return { prestados, tomados, eventos, pulados, errors, lastNsu: currentNsu - 1 };
 }
