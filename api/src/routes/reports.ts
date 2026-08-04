@@ -5,7 +5,8 @@ import ExcelJS from 'exceljs';
 import { XMLParser } from 'fast-xml-parser';
 import { PDFDocument } from 'pdf-lib';
 import { getCompany } from '../config-store.js';
-import { buildCancelledIndex } from '../services/xml-reader.js';
+import { buildEventIndex, type EventIndex } from '../services/xml-reader.js';
+import type { Situacao } from '../types.js';
 
 export const reportsRouter = Router();
 
@@ -29,6 +30,20 @@ function n(v: unknown): number {
 function s(v: unknown): string {
   return v?.toString().trim() ?? '';
 }
+/**
+ * Converte índice de coluna (1-based) em letra do Excel: 1→A, 26→Z, 27→AA.
+ * `String.fromCharCode(64 + n)` quebrava acima de 26 colunas (produzia '[').
+ */
+export function colLetter(n: number): string {
+  let s = '';
+  while (n > 0) {
+    const resto = (n - 1) % 26;
+    s = String.fromCharCode(65 + resto) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
 function safeDirRead(dir: string): string[] {
   if (!existsSync(dir)) return [];
   try { return readdirSync(dir); } catch { return []; }
@@ -36,7 +51,7 @@ function safeDirRead(dir: string): string[] {
 
 interface NoteRow {
   tipo: string;
-  cancelada: boolean;
+  situacao: Situacao;
   periodo: string;
   numeroNFSe: string;
   chaveAcesso: string;
@@ -65,7 +80,7 @@ interface NoteRow {
   valorLiquido: number;
 }
 
-function parseXmlToRow(xmlStr: string, tipo: string, periodo: string, cancelledChaves?: Set<string>): NoteRow | null {
+function parseXmlToRow(xmlStr: string, tipo: string, periodo: string, eventos?: EventIndex): NoteRow | null {
   try {
     const parsed = parser.parse(xmlStr);
     const inf = parsed?.NFSe?.infNFSe ?? {};
@@ -106,7 +121,8 @@ function parseXmlToRow(xmlStr: string, tipo: string, periodo: string, cancelledC
 
     return {
       tipo: tipo === 'tomados' ? 'Tomado' : 'Prestado',
-      cancelada: cancelledChaves?.has(chaveAcesso) ?? false,
+      situacao: eventos?.canceladas.has(chaveAcesso) ? 'cancelada'
+        : eventos?.substituidas.has(chaveAcesso) ? 'substituida' : 'ativa',
       periodo,
       numeroNFSe: s(inf.nNFSe),
       chaveAcesso,
@@ -184,7 +200,7 @@ reportsRouter.get('/:cnpj/excel', async (req, res) => {
   }
 
   const companyDir = join(company.outputFolder, company.nome);
-  const cancelledChaves = buildCancelledIndex(company.outputFolder, company.nome);
+  const eventos = buildEventIndex(company.outputFolder, company.nome);
   const rows: NoteRow[] = [];
 
   for (const period of safeDirRead(companyDir)) {
@@ -198,32 +214,33 @@ reportsRouter.get('/:cnpj/excel', async (req, res) => {
         if (!file.endsWith('.xml')) continue;
         try {
           const xml = readFileSync(join(tipoDir, file), 'utf-8');
-          const row = parseXmlToRow(xml, tipo, period, cancelledChaves);
+          const row = parseXmlToRow(xml, tipo, period, eventos);
           if (row) rows.push(row);
         } catch { /* pula */ }
       }
     }
 
-    // Notas canceladas (movidas para canceladas/)
-    const canceladasDir = join(periodDir, 'canceladas');
+    // Notas encerradas por evento, já movidas para as subpastas dedicadas
     const cnpjEmp = cnpj.replace(/\D/g, '').padStart(14, '0');
-    for (const file of safeDirRead(canceladasDir)) {
-      if (!file.endsWith('.xml')) continue;
-      try {
-        const xml = readFileSync(join(canceladasDir, file), 'utf-8');
-        const parsed = parser.parse(xml);
-        const inf = parsed?.NFSe?.infNFSe ?? {};
-        const emit = inf?.emit ?? {};
-        const cnpjEmit = String(emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
-        const tipoDetect = cnpjEmit === cnpjEmp ? 'prestados' : 'tomados';
-        if (tipoFiltro !== 'todos' && tipoFiltro !== tipoDetect) continue;
+    for (const [sub, situacao] of [['canceladas', 'cancelada'], ['substituidas', 'substituida']] as const) {
+      for (const file of safeDirRead(join(periodDir, sub))) {
+        if (!file.endsWith('.xml')) continue;
+        try {
+          const xml = readFileSync(join(periodDir, sub, file), 'utf-8');
+          const parsed = parser.parse(xml);
+          const inf = parsed?.NFSe?.infNFSe ?? {};
+          const emit = inf?.emit ?? {};
+          const cnpjEmit = String(emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
+          const tipoDetect = cnpjEmit === cnpjEmp ? 'prestados' : 'tomados';
+          if (tipoFiltro !== 'todos' && tipoFiltro !== tipoDetect) continue;
 
-        const row = parseXmlToRow(xml, tipoDetect, period, undefined);
-        if (row) {
-          row.cancelada = true;
-          rows.push(row);
-        }
-      } catch { /* pula */ }
+          const row = parseXmlToRow(xml, tipoDetect, period, undefined);
+          if (row) {
+            row.situacao = situacao;
+            rows.push(row);
+          }
+        } catch { /* pula */ }
+      }
     }
   }
 
@@ -260,13 +277,20 @@ reportsRouter.get('/:cnpj/excel', async (req, res) => {
   headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
   headerRow.height = 28;
 
+  const ROTULO_SITUACAO: Record<Situacao, string> = {
+    ativa: 'Ativa', cancelada: 'CANCELADA', substituida: 'SUBSTITUÍDA',
+  };
+
   filteredRows.forEach((row, i) => {
-    const rowData = { ...row, situacao: row.cancelada ? 'CANCELADA' : 'Ativa' };
-    const r = sheet.addRow(rowData);
-    if (row.cancelada) {
+    const r = sheet.addRow({ ...row, situacao: ROTULO_SITUACAO[row.situacao] });
+    if (row.situacao === 'cancelada') {
       r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE8E8' } };
       r.font = { color: { argb: 'FF9B1C1C' }, italic: true };
       if (!colsFilter || colsFilter.has('situacao')) r.getCell('situacao').font = { bold: true, color: { argb: 'FFDC2626' } };
+    } else if (row.situacao === 'substituida') {
+      r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+      r.font = { color: { argb: 'FF92400E' }, italic: true };
+      if (!colsFilter || colsFilter.has('situacao')) r.getCell('situacao').font = { bold: true, color: { argb: 'FFB45309' } };
     } else {
       r.fill = {
         type: 'pattern', pattern: 'solid',
@@ -277,8 +301,10 @@ reportsRouter.get('/:cnpj/excel', async (req, res) => {
     }
   });
 
-  const lastCol = String.fromCharCode(64 + (colsFilter ? colsFilter.size : EXCEL_ALL_COLS.length));
-  sheet.autoFilter = { from: 'A1', to: `${lastCol}${filteredRows.length + 1}` };
+  sheet.autoFilter = {
+    from: 'A1',
+    to: `${colLetter(colsFilter ? colsFilter.size : EXCEL_ALL_COLS.length)}${filteredRows.length + 1}`,
+  };
 
   const fileName = `NFSe_${company.nome.replace(/\s+/g, '_')}_${tipoFiltro}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -309,7 +335,7 @@ reportsRouter.get('/:cnpj/pdf-merged', async (req, res) => {
   }
 
   const companyDir = join(company.outputFolder, company.nome);
-  const cancelledChaves = buildCancelledIndex(company.outputFolder, company.nome);
+  const eventos = buildEventIndex(company.outputFolder, company.nome);
   const entries: PdfMergeEntry[] = [];
 
   for (const period of safeDirRead(companyDir)) {
@@ -334,30 +360,32 @@ reportsRouter.get('/:cnpj/pdf-merged', async (req, res) => {
             chave = idAttr.startsWith('NFS') ? idAttr.slice(3) : idAttr;
           } catch { /* usa period como fallback */ }
         }
-        const cancelada = cancelledChaves.has(chave);
+        const cancelada = eventos.canceladas.has(chave) || eventos.substituidas.has(chave);
         if (canceladasOpt === 'excluir' && cancelada) continue;
         if (canceladasOpt === 'somente' && !cancelada) continue;
         entries.push({ date, path: join(tipoDir, file), cancelada });
       }
     }
 
-    // Notas canceladas na pasta canceladas/
-    const canceladasDir = join(periodDir, 'canceladas');
-    for (const file of safeDirRead(canceladasDir)) {
-      if (!file.endsWith('.pdf')) continue;
-      if (canceladasOpt === 'excluir') continue;
-      const xmlFile = join(canceladasDir, file.replace(/\.pdf$/, '.xml'));
-      let date = period;
-      if (existsSync(xmlFile)) {
-        try {
-          const xml = readFileSync(xmlFile, 'utf-8');
-          const p = parser.parse(xml);
-          const inf = p?.NFSe?.infNFSe ?? {};
-          const dps = inf?.DPS?.infDPS ?? {};
-          date = String(dps?.dhEmi ?? inf?.dhProc ?? period);
-        } catch { /* usa period */ }
+    // Notas encerradas por evento, nas subpastas dedicadas
+    for (const sub of ['canceladas', 'substituidas'] as const) {
+      const subDir = join(periodDir, sub);
+      for (const file of safeDirRead(subDir)) {
+        if (!file.endsWith('.pdf')) continue;
+        if (canceladasOpt === 'excluir') continue;
+        const xmlFile = join(subDir, file.replace(/\.pdf$/, '.xml'));
+        let date = period;
+        if (existsSync(xmlFile)) {
+          try {
+            const xml = readFileSync(xmlFile, 'utf-8');
+            const p = parser.parse(xml);
+            const inf = p?.NFSe?.infNFSe ?? {};
+            const dps = inf?.DPS?.infDPS ?? {};
+            date = String(dps?.dhEmi ?? inf?.dhProc ?? period);
+          } catch { /* usa period */ }
+        }
+        entries.push({ date, path: join(subDir, file), cancelada: true });
       }
-      entries.push({ date, path: join(canceladasDir, file), cancelada: true });
     }
   }
 

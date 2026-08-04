@@ -59,15 +59,20 @@ export function readCompanyStats(outputFolder: string, nomeEmpresa: string): Com
   return { tomados, prestados, eventos };
 }
 
+export interface EventIndex {
+  canceladas: Set<string>;
+  substituidas: Set<string>;
+}
+
 /**
- * Retorna o conjunto de chaves de NFS-e que foram canceladas.
- * Varre TODAS as subpastas de NomeEmpresa/eventos/ e detecta cancelamentos
- * pelo conteúdo XML (tag <chNFSe> + indicador de cancelamento), sem depender
- * do nome da subpasta — garante compatibilidade com eventos mal-classificados.
+ * Indexa as chaves de NFS-e afetadas por eventos, separadas por tipo.
+ * Varre TODAS as subpastas de NomeEmpresa/eventos/ e classifica pelo conteúdo do
+ * XML, sem depender do nome da subpasta — garante compatibilidade com eventos
+ * mal-classificados por versões anteriores.
  */
-export function buildCancelledIndex(outputFolder: string, nomeEmpresa: string): Set<string> {
+export function buildEventIndex(outputFolder: string, nomeEmpresa: string): EventIndex {
   const eventosDir = join(outputFolder, nomeEmpresa, 'eventos');
-  const chaves = new Set<string>();
+  const idx: EventIndex = { canceladas: new Set(), substituidas: new Set() };
 
   for (const sub of safeDirRead(eventosDir)) {
     const subDir = join(eventosDir, sub);
@@ -75,21 +80,37 @@ export function buildCancelledIndex(outputFolder: string, nomeEmpresa: string): 
       if (!file.endsWith('.xml')) continue;
       try {
         const xml = readFileSync(join(subDir, file), 'utf-8');
-        // Só processa se for evento de cancelamento
+
+        const chNFSe = xml.match(/<chNFSe[^>]*>(\d+)<\/chNFSe>/)?.[1]
+          ?? xml.match(/<chNFSeAnulada[^>]*>(\d+)<\/chNFSeAnulada>/)?.[1]
+          ?? xml.match(/<chSubstda[^>]*>(\d+)<\/chSubstda>/)?.[1];
+        if (!chNFSe) continue;
+
         const isCanc = xml.includes('<e101101>') ||
           xml.includes('Cancelamento de NFS-e') ||
           xml.includes('cancelamento de NFS-e') ||
-          (xml.includes('<eCanc>') || xml.includes('<eCanc '));
-        if (!isCanc) continue;
+          xml.includes('<eCanc>') || xml.includes('<eCanc ');
+        const isSubst = xml.includes('<e110115>') ||
+          xml.includes('<eSubst>') || xml.includes('<eSubst ') ||
+          xml.includes('Substitui');
 
-        const chNFSe = xml.match(/<chNFSe[^>]*>(\d+)<\/chNFSe>/)?.[1]
-          ?? xml.match(/<chNFSeAnulada[^>]*>(\d+)<\/chNFSeAnulada>/)?.[1];
-        if (chNFSe) chaves.add(chNFSe);
+        if (isCanc) idx.canceladas.add(chNFSe);
+        else if (isSubst) idx.substituidas.add(chNFSe);
       } catch { /* arquivo corrompido — pula */ }
     }
   }
 
-  return chaves;
+  // Cancelamento tem precedência sobre substituição: uma nota cancelada permanece
+  // cancelada mesmo que também tenha sido alvo de um evento de substituição, e a
+  // ordem de leitura dos arquivos não pode decidir a situação final.
+  for (const chave of idx.canceladas) idx.substituidas.delete(chave);
+
+  return idx;
+}
+
+/** @deprecated Use `buildEventIndex`, que também identifica notas substituídas. */
+export function buildCancelledIndex(outputFolder: string, nomeEmpresa: string): Set<string> {
+  return buildEventIndex(outputFolder, nomeEmpresa).canceladas;
 }
 
 function safeDirRead(dir: string): string[] {

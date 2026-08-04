@@ -1,11 +1,14 @@
 import { Router } from 'express';
-import { readdirSync, readFileSync, existsSync, mkdirSync } from 'fs';
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { XMLParser } from 'fast-xml-parser';
 import { getCompany } from '../config-store.js';
-import { buildCancelledIndex } from '../services/xml-reader.js';
-import { importRawXml } from '../services/xml-saver.js';
+import type { Situacao } from '../types.js';
+import { buildEventIndex } from '../services/xml-reader.js';
+import { importRawXml, isWithinRange } from '../services/xml-saver.js';
 import { NsuIndex } from '../services/nsu-index.js';
+import { generateDanfse, type DanfseStamp } from '../services/danfse-generator.js';
+import { downloadDanfsePdf, resetDanfseBreaker, isDanfseBreakerOpen } from '../services/danfse-downloader.js';
 
 export const notesRouter = Router();
 
@@ -39,7 +42,8 @@ export interface NoteItem {
   dataEmissao: string; // DD/MM/AAAA
   valorServico: number;
   periodo: string;
-  cancelada: boolean;
+  cancelada: boolean;  // mantido por compatibilidade com a UI anterior
+  situacao: Situacao;
 }
 
 interface ParsedNote extends NoteItem {
@@ -73,6 +77,7 @@ function parseNote(xml: string, tipo: 'tomados' | 'prestados'): ParsedNote | nul
         valorServico,
         periodo: s(dps.dCompet),
         cancelada: false,
+        situacao: 'ativa',
         chaveAcesso,
       };
     } else {
@@ -85,6 +90,7 @@ function parseNote(xml: string, tipo: 'tomados' | 'prestados'): ParsedNote | nul
         valorServico,
         periodo: s(dps.dCompet),
         cancelada: false,
+        situacao: 'ativa',
         chaveAcesso,
       };
     }
@@ -102,9 +108,18 @@ notesRouter.get('/:cnpj', (req, res) => {
   if (!company) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
 
   const companyDir = join(company.outputFolder, company.nome);
-  // Índice de notas canceladas (chaves extraídas dos nomes dos arquivos em eventos/canceladas/)
-  const cancelledChaves = buildCancelledIndex(company.outputFolder, company.nome);
+  // Índice de eventos: chaves de notas canceladas e substituídas
+  const eventos = buildEventIndex(company.outputFolder, company.nome);
   const allNotes: NoteItem[] = [];
+  const cnpjEmp = cnpj.replace(/\D/g, '').padStart(14, '0');
+
+  const push = (note: ParsedNote, situacao: Situacao) => {
+    note.situacao = situacao;
+    note.cancelada = situacao === 'cancelada';
+    const { chaveAcesso: _ch, ...noteItem } = note;
+    void _ch;
+    allNotes.push(noteItem);
+  };
 
   for (const period of safeDirRead(companyDir)) {
     // Ignora a pasta "eventos" (não é um período)
@@ -112,43 +127,37 @@ notesRouter.get('/:cnpj', (req, res) => {
 
     const periodDir = join(companyDir, period);
 
-    // Notas normais (ativas)
+    // Notas ativas
     const tipoDir = join(periodDir, tipo);
     for (const file of safeDirRead(tipoDir)) {
       if (!file.endsWith('.xml')) continue;
       try {
         const xml = readFileSync(join(tipoDir, file), 'utf-8');
         const note = parseNote(xml, tipo);
-        if (note) {
-          note.cancelada = cancelledChaves.has(note.chaveAcesso);
-          const { chaveAcesso: _ch, ...noteItem } = note;
-          void _ch;
-          allNotes.push(noteItem);
-        }
+        if (!note) continue;
+        const situacao: Situacao = eventos.canceladas.has(note.chaveAcesso) ? 'cancelada'
+          : eventos.substituidas.has(note.chaveAcesso) ? 'substituida'
+          : 'ativa';
+        push(note, situacao);
       } catch { /* pula */ }
     }
 
-    // Notas canceladas (movidas para canceladas/)
-    const canceladasDir = join(periodDir, 'canceladas');
-    const cnpjEmp = cnpj.replace(/\D/g, '').padStart(14, '0');
-    for (const file of safeDirRead(canceladasDir)) {
-      if (!file.endsWith('.xml')) continue;
-      try {
-        const xml = readFileSync(join(canceladasDir, file), 'utf-8');
-        // Detecta tipo a partir do CNPJ do prestador comparado com a empresa
-        const parsedXml = parser.parse(xml);
-        const emitCnpj = String(parsedXml?.NFSe?.infNFSe?.emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
-        const tipoDetect = emitCnpj === cnpjEmp ? 'prestados' : 'tomados';
-        if (tipoDetect !== tipo) continue;
+    // Notas encerradas por evento, já movidas para as subpastas dedicadas
+    for (const [sub, situacao] of [['canceladas', 'cancelada'], ['substituidas', 'substituida']] as const) {
+      for (const file of safeDirRead(join(periodDir, sub))) {
+        if (!file.endsWith('.xml')) continue;
+        try {
+          const xml = readFileSync(join(periodDir, sub, file), 'utf-8');
+          // O tipo é detectado pelo CNPJ do emitente: a subpasta não o distingue
+          const parsedXml = parser.parse(xml);
+          const emitCnpj = String(parsedXml?.NFSe?.infNFSe?.emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
+          const tipoDetect = emitCnpj === cnpjEmp ? 'prestados' : 'tomados';
+          if (tipoDetect !== tipo) continue;
 
-        const note = parseNote(xml, tipo);
-        if (note) {
-          note.cancelada = true;
-          const { chaveAcesso: _ch, ...noteItem } = note;
-          void _ch;
-          allNotes.push(noteItem);
-        }
-      } catch { /* pula */ }
+          const note = parseNote(xml, tipo);
+          if (note) push(note, situacao);
+        } catch { /* pula */ }
+      }
     }
   }
 
@@ -164,6 +173,110 @@ notesRouter.get('/:cnpj', (req, res) => {
   const items = allNotes.slice((page - 1) * limit, page * limit);
 
   res.json({ items, total, page, totalPages, limit });
+});
+
+// GET /api/notes/:cnpj/gerar-pdfs — SSE: gera o DANFSe dos XMLs que ainda não têm PDF
+// Query: dataInicio?, dataFim? (YYYY-MM-DD), tipo? = todos|prestados|tomados,
+//        incluirEncerradas? = 'false' para pular canceladas/substituídas
+notesRouter.get('/:cnpj/gerar-pdfs', async (req, res) => {
+  const cnpj = req.params.cnpj.replace(/\D/g, '');
+  const company = getCompany(cnpj);
+  if (!company) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
+
+  const tipoFiltro = String(req.query.tipo ?? 'todos');
+  const incluirEncerradas = req.query.incluirEncerradas !== 'false';
+  const dataInicio = String(req.query.dataInicio ?? '');
+  const dataFim = String(req.query.dataFim ?? '');
+  const range = (dataInicio || dataFim) ? {
+    dataInicio: dataInicio ? new Date(dataInicio + 'T00:00:00-03:00') : undefined,
+    dataFim: dataFim ? new Date(dataFim + 'T23:59:59-03:00') : undefined,
+  } : undefined;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const send = (type: string, data: object) => res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+
+  interface PdfJob { xmlPath: string; pdfPath: string; stamp?: DanfseStamp }
+  const companyDir = join(company.outputFolder, company.nome);
+  const subPastas: Array<{ nome: string; stamp?: DanfseStamp }> = [
+    { nome: 'prestados' },
+    { nome: 'tomados' },
+    ...(incluirEncerradas
+      ? [{ nome: 'canceladas', stamp: 'CANCELADA' as const }, { nome: 'substituidas', stamp: 'SUBSTITUIDA' as const }]
+      : []),
+  ];
+
+  const jobs: PdfJob[] = [];
+  for (const period of safeDirRead(companyDir)) {
+    if (period === 'eventos') continue;
+    for (const { nome, stamp } of subPastas) {
+      // O filtro de tipo não se aplica às encerradas: a subpasta não distingue tipo
+      if (!stamp && tipoFiltro !== 'todos' && tipoFiltro !== nome) continue;
+      const dir = join(companyDir, period, nome);
+      for (const file of safeDirRead(dir)) {
+        if (!file.endsWith('.xml')) continue;
+        const xmlPath = join(dir, file);
+        const pdfPath = xmlPath.replace(/\.xml$/, '.pdf');
+        if (existsSync(pdfPath)) continue; // já tem PDF
+        if (range) {
+          try {
+            const xml = readFileSync(xmlPath, 'utf-8');
+            const dhEmi = xml.match(/<dhEmi[^>]*>([^<]+)<\/dhEmi>/)?.[1] ?? null;
+            const dhProc = xml.match(/<dhProc[^>]*>([^<]+)<\/dhProc>/)?.[1] ?? null;
+            if (!isWithinRange({ dhEmi, dhProc }, range)) continue;
+          } catch { continue; }
+        }
+        jobs.push({ xmlPath, pdfPath, stamp });
+      }
+    }
+  }
+
+  send('progress', { message: `${jobs.length} nota(s) sem PDF para gerar.` });
+  if (jobs.length === 0) {
+    send('done', { message: 'Todas as notas do filtro já têm PDF.', oficiais: 0, locais: 0, erros: 0 });
+    res.end();
+    return;
+  }
+
+  // Nova execução → nova chance para o DANFSe oficial do ADN
+  resetDanfseBreaker();
+  const temCert = Boolean(company.pfxPath && company.pfxPassword);
+  let oficiais = 0, locais = 0, erros = 0;
+  const CONCURRENCY = 4;
+
+  for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+    const batch = jobs.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(batch.map(async ({ xmlPath, pdfPath, stamp }) => {
+      try {
+        const xmlStr = readFileSync(xmlPath, 'utf-8');
+        let pdf: Buffer | null = null;
+
+        // 1) DANFSe oficial do ADN — barato: 1 tentativa, breaker desliga após 3 falhas.
+        //    Notas encerradas precisam do carimbo, então vão direto ao gerador local.
+        if (temCert && !stamp) {
+          const chave = xmlStr.match(/Id="NFS([^"]{44,})"/)?.[1] ?? '';
+          if (chave.length >= 44) {
+            pdf = await downloadDanfsePdf(chave, company.pfxPath, company.pfxPassword);
+            if (pdf) oficiais++;
+          }
+        }
+        // 2) Gerador local no layout NT 008/2026
+        if (!pdf) { pdf = await generateDanfse(xmlStr, stamp); locais++; }
+
+        writeFileSync(pdfPath, pdf);
+      } catch { erros++; }
+    }));
+    send('progress', { message: `${Math.min(i + CONCURRENCY, jobs.length)}/${jobs.length} gerados...` });
+  }
+
+  const nota = isDanfseBreakerOpen() ? ' (DANFSe oficial do ADN indisponível nesta execução)' : '';
+  send('done', {
+    message: `Concluído: ${oficiais} oficial(is) do ADN, ${locais} gerado(s) localmente, ${erros} erro(s)${nota}`,
+    oficiais, locais, erros,
+  });
+  res.end();
 });
 
 // POST /api/notes/:cnpj/import — importa XML de NFS-e manualmente (corpo: text/xml ou application/xml)
