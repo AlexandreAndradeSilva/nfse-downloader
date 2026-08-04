@@ -6,6 +6,16 @@ import { certificatesRouter } from './routes/certificates.js';
 import { statsRouter } from './routes/stats.js';
 import { reportsRouter } from './routes/reports.js';
 import { notesRouter } from './routes/notes.js';
+import { runStartupMigration } from './services/startup-migration.js';
+import { closeDanfseBrowser } from './services/danfse-generator.js';
+
+// Migração one-shot de estado deixado por versões anteriores. Nunca deve
+// impedir o servidor de subir — falha aqui é registrada e ignorada.
+try {
+  runStartupMigration();
+} catch (err) {
+  console.warn('[migração] falhou (seguindo):', (err as Error).message);
+}
 
 const app = express();
 
@@ -35,6 +45,14 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/notes', notesRouter);
 
 const PORT = 3002;
-app.listen(PORT, () => console.log(`API rodando em http://localhost:${PORT}`));
+const server = app.listen(PORT, () => console.log(`API rodando em http://localhost:${PORT}`));
+
+// O Chromium do gerador de DANFSe é compartilhado e mantém o processo vivo;
+// fecha explicitamente para o encerramento não travar.
+for (const sinal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sinal, () => {
+    void closeDanfseBrowser().finally(() => server.close(() => process.exit(0)));
+  });
+}
 
 export default app;
