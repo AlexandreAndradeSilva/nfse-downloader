@@ -70,7 +70,7 @@ git commit -m "chore(api): deps exceljs/pdf-lib/qrcode e tipos compartilhados"
 - Modify: `api/src/config-store.ts` ← portar de `c:\nfs\api\dist\config-store.js`
 - Copy: `c:\nfs\api\dist\assets\nfse-logo.b64` → `api/src/assets/nfse-logo.b64` (conferir se já existe no repo)
 
-**NÃO portar:** `danfse-downloader.js` (API do governo descontinuada em 03/08/2026 — NT 008/2026). Onde o dist chama `downloadDanfsePdf(...)`, usar somente `generateDanfse(...)` local.
+**Portar `danfse-downloader.js` COM circuit breaker** (ver Task 2b). O endpoint `https://adn.nfse.gov.br/danfse/{chave}` é o DANFSe oficial do ADN NFS-e e permanece no código; hoje responde 503 consistentemente (NT 008/2026 descontinuou a API de geração do DANFSe), por isso a tentativa precisa ser barata e desligar-se sozinha. Onde o dist chama `downloadDanfsePdf(...)` dentro do fluxo de **sync**, remover (PDF sai do sync — Task 6); a tentativa oficial passa a viver só no fluxo de geração de PDFs (Task 11).
 
 - [ ] **Step 1: Portar `adn-client.ts`** — o dist adiciona cache de `https.Agent` com `keepAlive` (função `getCachedAgent`). Manter a assinatura `fetchDFeLote(opts, nsu, cnpj)` e o `cnpjLimpo = cnpj.replace(/\D/g, '')`.
 
@@ -92,6 +92,150 @@ Expected: `config-store.test.ts`, `xml-reader.test.ts` e `danfse-generator.test.
 ```bash
 git add api/src api/tests
 git commit -m "feat(api): retro-port dos services do build de producao (sem API DANFSe morta)"
+```
+
+### Task 2b: `danfse-downloader` com circuit breaker
+
+**Files:**
+- Modify: `api/src/services/danfse-downloader.ts` ← portar de `c:\nfs\api\dist\services\danfse-downloader.js`
+- Test: `api/tests/danfse-downloader.test.ts` (novo)
+
+Comportamento medido em 03/08/2026 com certificado real: `GET https://adn.nfse.gov.br/danfse/{chave}` → HTTP 503 `No server is available to handle this request` em 100% das tentativas, enquanto `sefin.nfse.gov.br/sefinnacional/nfse/{chave}` (mesmo mTLS) responde 200. A rota oficial fica no código, mas **não pode custar 52 s por nota**.
+
+- [ ] **Step 1: Testes (falhando)**
+
+```ts
+// api/tests/danfse-downloader.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { downloadDanfsePdf, resetDanfseBreaker, isDanfseBreakerOpen } from '../src/services/danfse-downloader.js';
+
+const CHAVE = '5'.repeat(50);
+beforeEach(() => resetDanfseBreaker());
+
+it('retorna o PDF quando o ADN responde 200', async () => {
+  const fetchImpl = vi.fn().mockResolvedValue({
+    ok: true, status: 200,
+    arrayBuffer: async () => new TextEncoder().encode('%PDF-1.4 conteudo').buffer,
+  });
+  const buf = await downloadDanfsePdf(CHAVE, '', '', fetchImpl as never);
+  expect(buf!.subarray(0, 4).toString('latin1')).toBe('%PDF');
+});
+
+it('uma única tentativa por chamada (sem escada de retries)', async () => {
+  const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => '' });
+  const buf = await downloadDanfsePdf(CHAVE, '', '', fetchImpl as never);
+  expect(buf).toBeNull();
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+});
+
+it('abre o breaker após 3 falhas consecutivas e para de chamar a rede', async () => {
+  const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => '' });
+  for (let i = 0; i < 3; i++) await downloadDanfsePdf(CHAVE, '', '', fetchImpl as never);
+  expect(isDanfseBreakerOpen()).toBe(true);
+  await downloadDanfsePdf(CHAVE, '', '', fetchImpl as never);
+  expect(fetchImpl).toHaveBeenCalledTimes(3);   // 4ª chamada não foi à rede
+});
+
+it('sucesso zera o contador de falhas', async () => {
+  const fail = { ok: false, status: 503, text: async () => '' };
+  const okRes = { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode('%PDF-1.4').buffer };
+  const fetchImpl = vi.fn()
+    .mockResolvedValueOnce(fail).mockResolvedValueOnce(fail)
+    .mockResolvedValueOnce(okRes).mockResolvedValueOnce(fail);
+  for (let i = 0; i < 4; i++) await downloadDanfsePdf(CHAVE, '', '', fetchImpl as never);
+  expect(isDanfseBreakerOpen()).toBe(false);    // sucesso no meio resetou
+});
+```
+
+- [ ] **Step 2: Ver falhar** — `cd api && npx vitest run tests/danfse-downloader.test.ts`
+
+- [ ] **Step 3: Implementar**
+
+```ts
+// api/src/services/danfse-downloader.ts
+import https from 'https';
+import { readFileSync } from 'fs';
+import nodeFetch from 'node-fetch';
+
+const DANFSE_BASE_URL = 'https://adn.nfse.gov.br/danfse';
+const TIMEOUT_MS = 5000;
+const MAX_FALHAS_CONSECUTIVAS = 3;
+
+let falhasConsecutivas = 0;
+let breakerAberto = false;
+
+export function resetDanfseBreaker(): void { falhasConsecutivas = 0; breakerAberto = false; }
+export function isDanfseBreakerOpen(): boolean { return breakerAberto; }
+
+const agentCache = new Map<string, https.Agent>();
+function getCachedAgent(pfxPath: string, pfxPassword: string): https.Agent | undefined {
+  if (!pfxPath) return undefined;                      // testes
+  const key = `${pfxPath}::${pfxPassword}`;
+  if (!agentCache.has(key)) {
+    agentCache.set(key, new https.Agent({
+      pfx: readFileSync(pfxPath), passphrase: pfxPassword,
+      rejectUnauthorized: true, keepAlive: true,
+    }));
+  }
+  return agentCache.get(key);
+}
+
+/**
+ * Baixa o DANFSe oficial do ADN NFS-e (mTLS com certificado do contribuinte).
+ *
+ * Uma tentativa por chamada, timeout curto. Após MAX_FALHAS_CONSECUTIVAS falhas,
+ * o breaker abre e as chamadas seguintes retornam null sem tocar a rede — o chamador
+ * cai no gerador local. Um sucesso reabilita.
+ *
+ * Retorna null em qualquer falha (nunca lança) — o PDF oficial é um bônus, não um requisito.
+ */
+export async function downloadDanfsePdf(
+  chaveAcesso: string,
+  pfxPath: string,
+  pfxPassword: string,
+  fetchImpl: typeof nodeFetch = nodeFetch,
+): Promise<Buffer | null> {
+  if (breakerAberto) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(`${DANFSE_BASE_URL}/${chaveAcesso}`, {
+      agent: getCachedAgent(pfxPath, pfxPassword),
+      headers: { Accept: 'application/pdf' },
+      signal: controller.signal as never,
+    });
+    if (res.ok) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      falhasConsecutivas = 0;
+      return buf;
+    }
+    registrarFalha(`HTTP ${res.status}`);
+    return null;
+  } catch (err) {
+    registrarFalha((err as Error).message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function registrarFalha(motivo: string): void {
+  falhasConsecutivas++;
+  if (falhasConsecutivas >= MAX_FALHAS_CONSECUTIVAS && !breakerAberto) {
+    breakerAberto = true;
+    console.warn(`[DANFSe] ADN indisponível (${motivo}) após ${MAX_FALHAS_CONSECUTIVAS} tentativas — usando gerador local no restante desta execução.`);
+  }
+}
+```
+
+- [ ] **Step 4: Ver passar** — `npx vitest run tests/danfse-downloader.test.ts` → PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add api/src/services/danfse-downloader.ts api/tests/danfse-downloader.test.ts
+git commit -m "feat(api): DANFSe oficial do ADN com circuit breaker e timeout curto"
 ```
 
 ### Task 3: Retro-port de xml-saver + sync-engine (comportamento de produção)
@@ -953,25 +1097,39 @@ notesRouter.get('/:cnpj/gerar-pdfs', async (req, res) => {
   }
 
   send('progress', { message: `${jobs.length} PDFs a gerar.` });
-  let ok = 0, erros = 0;
+  resetDanfseBreaker();   // nova execução → nova chance para o ADN oficial
+  const temCert = Boolean(company.pfxPath && company.pfxPassword);
+  let oficiais = 0, locais = 0, erros = 0;
   const CONCURRENCY = 4;
   for (let i = 0; i < jobs.length; i += CONCURRENCY) {
     const batch = jobs.slice(i, i + CONCURRENCY);
     await Promise.allSettled(batch.map(async ({ xmlPath, pdfPath, stamp }) => {
       try {
-        const pdf = await generateDanfse(readFileSync(xmlPath, 'utf-8'), stamp);
+        const xmlStr = readFileSync(xmlPath, 'utf-8');
+        // 1) tenta o DANFSe oficial do ADN (barato: 1 tentativa, breaker desliga após 3 falhas)
+        const chave = xmlStr.match(/Id="NFS([^"]{44,})"/)?.[1] ?? '';
+        let pdf: Buffer | null = null;
+        if (temCert && chave.length >= 44 && !stamp) {   // canceladas/substituídas precisam do carimbo local
+          pdf = await downloadDanfsePdf(chave, company.pfxPath, company.pfxPassword);
+          if (pdf) oficiais++;
+        }
+        // 2) fallback: gerador local no layout NT 008
+        if (!pdf) { pdf = await generateDanfse(xmlStr, stamp); locais++; }
         writeFileSync(pdfPath, pdf);
-        ok++;
       } catch { erros++; }
     }));
     send('progress', { message: `${Math.min(i + CONCURRENCY, jobs.length)}/${jobs.length} gerados...` });
   }
-  send('done', { message: `Concluído: ${ok} PDFs gerados, ${erros} erros`, ok, erros });
+  const nota = isDanfseBreakerOpen() ? ' (ADN oficial indisponível nesta execução)' : '';
+  send('done', {
+    message: `Concluído: ${oficiais} oficiais do ADN, ${locais} gerados localmente, ${erros} erros${nota}`,
+    oficiais, locais, erros,
+  });
   res.end();
 });
 ```
 
-(Imports: `isWithinRange` de `xml-saver.js`; `generateDanfse`, `DanfseStamp` de `danfse-generator.js`.)
+(Imports: `isWithinRange` de `xml-saver.js`; `generateDanfse`, `DanfseStamp` de `danfse-generator.js`; `downloadDanfsePdf`, `resetDanfseBreaker`, `isDanfseBreakerOpen` de `danfse-downloader.js`.)
 
 - [ ] **Step 4: `reports.ts`**: trocar `buildCancelledIndex` por `buildEventIndex`; varrer também `substituidas/` (mesma lógica das canceladas); `situacao` = `'SUBSTITUÍDA'` com estilo âmbar:
 
@@ -1539,6 +1697,7 @@ EOF
 | 3.1 Buscar Notas (tipos, XML-only, período dhEmi/dhProc, sem-data salva) | 6, 7, 9, 13 |
 | 3.2 Índice NSU, colisão, lastNsu, Retry-After | 5, 6, 7, 8 |
 | 3.3 Gerar PDFs NT 008 + pool + carimbos + QR | 10, 11, 14 |
+| DANFSe oficial do ADN com circuit breaker (emenda pós-design) | 2b, 11 |
 | 3.4 Substituição (mover, carimbo, relatórios, índice) | 6, 10, 11, 15 |
 | 3.5 Migração mojibake + `.local` | 12 |
 | 3.6 Estrutura de pastas | 6 (substituidas/), 12 |

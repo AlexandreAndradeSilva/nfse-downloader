@@ -77,8 +77,16 @@
 - Novo `GeneratePdfsModal`: período (datas), tipo (todos/prestados/tomados) e incluir
   canceladas/substituídas (default: sim).
 - Rota `GET /api/notes/:cnpj/gerar-pdfs` (SSE; substitui `regenerar-pdfs`): para cada XML do
-  filtro sem PDF correspondente, gera DANFSe local. Sem nenhuma chamada à API do governo;
-  marcadores `.local` deixam de existir (migração os apaga).
+  filtro sem PDF correspondente, tenta o DANFSe oficial do ADN e cai no gerador local.
+  Marcadores `.local` deixam de existir (migração os apaga).
+- **Emenda pós-design (03/08/2026):** o endpoint oficial `https://adn.nfse.gov.br/danfse/{chave}`
+  permanece no código, mas atrás de um **circuit breaker**: 1 tentativa por nota, timeout 5 s,
+  e após 3 falhas consecutivas a tentativa é desligada pelo resto da execução (custo total
+  ~15 s em vez de 52 s por nota). Medição em 03/08/2026 com o certificado real: 503
+  `No server is available` em 100% das tentativas, enquanto `sefinnacional/nfse/{chave}`
+  responde 200 com o mesmo mTLS — a rota `/danfse` está fora, não a conectividade. Se o
+  serviço voltar, o PDF oficial volta a ser usado sem mudança de código. Notas canceladas e
+  substituídas usam sempre o gerador local (precisam do carimbo).
 - **Template NT 008/2026 v1.02 (DANFSe 2.0)**: novo `danfse-template.ts` seguindo a espec
   oficial (baixada como referência em `docs/referencias/`), incluindo QR Code de consulta
   pública (lib `qrcode`) e carimbo diagonal CANCELADA/SUBSTITUÍDA quando aplicável.
