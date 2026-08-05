@@ -309,3 +309,44 @@ describe('importRawXml', () => {
     expect(info).toBeNull();
   });
 });
+
+const JULHO_2026 = {
+  dataInicio: new Date('2026-07-01T00:00:00-03:00'),
+  dataFim: new Date('2026-07-31T23:59:59-03:00'),
+};
+
+describe('relevância de eventos com filtro de período', () => {
+  it('ignora evento fora do período cuja nota não foi baixada', async () => {
+    const idx = NsuIndex.load(companyDir());
+    const evt = makeEventoCancXml({ chNFSe: CH2, nDFSe: '999', dhCanc: '2026-03-10T12:00:00-03:00' });
+
+    const info = await decodeAndSave(await gz(evt), 1, CNPJ, OUTPUT, EMPRESA, idx, JULHO_2026);
+
+    expect(info.salvo).toBe(false);
+    expect(existsSync(join(companyDir(), 'eventos'))).toBe(false);
+  });
+
+  it('grava evento fora do período quando a nota está na pasta', async () => {
+    const idx = NsuIndex.load(companyDir());
+    // nota de julho entra normalmente
+    await decodeAndSave(
+      await gz(makeXml({ cnpj: CNPJ, nNFSe: '77', chave: CH1 })), 1, CNPJ, OUTPUT, EMPRESA, idx, JULHO_2026);
+
+    // cancelamento veio depois, em agosto — ainda assim precisa ser aplicado
+    const evt = makeEventoCancXml({ chNFSe: CH1, nDFSe: '77', dhCanc: '2026-08-10T12:00:00-03:00' });
+    const info = await decodeAndSave(await gz(evt), 2, CNPJ, OUTPUT, EMPRESA, idx, JULHO_2026);
+
+    expect(info.salvo).toBe(true);
+    expect(existsSync(join(companyDir(), '072026', 'canceladas', 'NFS 77.xml'))).toBe(true);
+  });
+
+  it('grava evento dentro do período mesmo sem a nota na pasta', async () => {
+    const idx = NsuIndex.load(companyDir());
+    const evt = makeEventoCancXml({ chNFSe: CH2, nDFSe: '888', dhCanc: '2026-07-15T12:00:00-03:00' });
+
+    const info = await decodeAndSave(await gz(evt), 1, CNPJ, OUTPUT, EMPRESA, idx, JULHO_2026);
+
+    expect(info.salvo).toBe(true);
+    expect(existsSync(join(companyDir(), 'eventos', 'canceladas', '888-canc.xml'))).toBe(true);
+  });
+});

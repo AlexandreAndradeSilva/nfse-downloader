@@ -47,8 +47,9 @@ function asObject(v: unknown): Record<string, unknown> {
  * Com `dateRange`, uma NFS-e fora do período não é gravada — o filtro do
  * usuário decide o que vai para o disco.
  *
- * Eventos são sempre gravados, mesmo fora do período: é o evento que define a
- * situação da nota, e descartá-lo faria uma nota cancelada aparecer como ativa.
+ * Eventos são gravados fora do período apenas quando afetam uma nota que está
+ * na pasta — é o evento que define a situação dela, e descartá-lo faria uma
+ * nota cancelada aparecer como ativa. Evento de nota não baixada é ignorado.
  */
 export async function decodeAndSave(
   xmlBase64Gzip: string,
@@ -69,7 +70,7 @@ export async function decodeAndSave(
   // NFS-e → tem <NFSe> na raiz
   // evento → qualquer outro elemento raiz (evento, eCanc, eSubst, retEvento…)
   if (!parsed.NFSe) {
-    return saveEvento(xmlStr, parsed, nsu, outputFolder, nomeEmpresa, index);
+    return saveEvento(xmlStr, parsed, nsu, outputFolder, nomeEmpresa, index, dateRange);
   }
 
   return saveNfse(xmlStr, parsed, nsu, cnpjEmpresa, outputFolder, nomeEmpresa, index, dateRange);
@@ -213,6 +214,7 @@ function saveEvento(
   outputFolder: string,
   nomeEmpresa: string,
   index: NsuIndex,
+  dateRange?: DateRange,
 ): SavedXmlInfo {
   // Usa regex no XML bruto para evitar perda de precisão em chaves numéricas longas
   // que o fast-xml-parser converte para float e perde os últimos dígitos.
@@ -234,6 +236,27 @@ function saveEvento(
   const subpasta = eventoTipo === 'cancelamento' ? 'canceladas'
     : eventoTipo === 'substituicao' ? 'substituicoes'
       : 'outros';
+
+  // Com filtro ativo, só interessa o evento que está no período ou que afeta
+  // uma nota presente na pasta. Guardar eventos de notas que nem foram baixadas
+  // enche `eventos/` de arquivos sem relação com o que o usuário pediu.
+  if (dateRange) {
+    const afetaNotaBaixada = Boolean(chNFSe && index.fileForChave(chNFSe));
+    const eventoNoPeriodo = isWithinRange({ dhEmi: null, dhProc: dhEvento || null }, dateRange);
+    if (!afetaNotaBaixada && !eventoNoPeriodo) {
+      return {
+        nsu,
+        tipo: 'eventos',
+        competencia: subpasta,
+        filePath: '',
+        chaveAcesso: chNFSe || String(nsu),
+        dhEmi: null,
+        dhProc: dhEvento || null,
+        eventoTipo,
+        salvo: false,
+      };
+    }
+  }
 
   const dir = join(outputFolder, nomeEmpresa, 'eventos', subpasta);
   mkdirSync(dir, { recursive: true });
