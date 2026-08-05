@@ -82,13 +82,11 @@ describe('writeConfig', () => {
     // voltava para o disco e as notas iam para uma pasta fantasma.
     const bom = join(TMP, 'Área de Trabalho', 'nfs');
     mkdirSync(bom, { recursive: true });
+    mkdirSync(join(TMP, 'cfg'), { recursive: true });
 
-    const cwd = process.cwd();
-    const sandbox = join(TMP, 'cfg');
-    mkdirSync(sandbox, { recursive: true });
-    process.chdir(sandbox);
+    const anterior = process.env.NFSE_CONFIG_PATH;
+    process.env.NFSE_CONFIG_PATH = join(TMP, 'cfg', 'config.json');
     try {
-      // import dinâmico: o módulo resolve o caminho do config no load
       const { writeConfig, readConfig } = await import('../src/config-store.js?t=' + Date.now());
       writeConfig({
         companies: [{
@@ -100,7 +98,8 @@ describe('writeConfig', () => {
       });
       expect(readConfig().companies[0].outputFolder).toBe(bom);
     } finally {
-      process.chdir(cwd);
+      if (anterior === undefined) delete process.env.NFSE_CONFIG_PATH;
+      else process.env.NFSE_CONFIG_PATH = anterior;
     }
   });
 });

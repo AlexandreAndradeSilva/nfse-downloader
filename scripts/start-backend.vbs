@@ -36,6 +36,10 @@ servidor = fso.BuildPath(raiz, "api\dist\server.js")
 logSaida = fso.BuildPath(raiz, "api\server.log")
 logErro  = fso.BuildPath(raiz, "api\server.err")
 
+' O diretório de trabalho precisa ser a pasta api: o backend resolve caminhos
+' relativos a partir dele. Subir de outra pasta já criou config.json vazio.
+shell.CurrentDirectory = fso.BuildPath(raiz, "api")
+
 ' cmd /c permite redirecionar a saída; as aspas triplas escapam as internas
 comando = "cmd /c """"node"" """ & servidor & """ >> """ & logSaida & """ 2>> """ & logErro & """"""
 

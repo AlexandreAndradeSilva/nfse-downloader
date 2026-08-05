@@ -1,9 +1,22 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import type { Config, Company } from './types.js';
 import { fixMojibakePath } from './services/startup-migration.js';
 
-const CONFIG_PATH = join(process.cwd(), 'config.json');
+/**
+ * Caminho do config.json, resolvido a partir da localização deste módulo.
+ *
+ * Antes vinha de `process.cwd()`, o que fazia o arquivo depender de onde o
+ * processo foi iniciado: subir o servidor de outra pasta criava um config
+ * vazio e "sumia" com as empresas cadastradas.
+ *
+ * Em produção este módulo fica em <api>/dist/ e em desenvolvimento em
+ * <api>/src/ — em ambos, o config está um nível acima.
+ */
+const CONFIG_PATH = process.env.NFSE_CONFIG_PATH
+  ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'config.json');
+
 const DEFAULT_CONFIG: Config = { companies: [] };
 
 export function readConfig(): Config {
