@@ -393,7 +393,7 @@ export function buildDanfseHtml(
   /* Altura fixa de uma folha A4: o DANFSe nunca deve quebrar em duas páginas */
   body {
     margin: 0; width: 21cm; height: 29.7cm; overflow: hidden; position: relative;
-    padding: 3mm;
+    padding: 2mm;
     font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
@@ -402,7 +402,7 @@ export function buildDanfseHtml(
      para que a marca apareça através dela como no DANFSe oficial. */
   .folha {
     position: relative; z-index: 1;
-    border: 0.7pt solid #000;
+    border: 1.4pt solid #000;
     padding: 2mm 2mm 0;
     background: transparent;
     /* Ocupa exatamente a área útil da folha, sem transbordar */
@@ -455,13 +455,19 @@ export function buildDanfseHtml(
   .vl  { font-size: 8.4pt; line-height: 1.2; word-break: break-word; }
   .cel.b .vl { font-weight: bold; font-size: 9.2pt; }
   .sub { font-size: 8.4pt; line-height: 1.2; }
-  .cel.tit .lb { font-size: 9.4pt; }
-  .semint { font-size: 8.4pt; padding: 0.8mm; text-align: center; }
+  /* Títulos de bloco: peso normal e menores, como no documento oficial */
+  .cel.tit .lb { font-size: 7.4pt; font-weight: normal; }
+
+  /* Linha do intermediário ausente: rente, sem a altura mínima das células */
+  .semint {
+    font-size: 7.6pt; text-align: center;
+    padding: 0.4mm 1.5mm; min-height: 0;
+  }
 
   /* Barras de seção */
   .barra {
-    font-size: 9.4pt; font-weight: bold;
-    padding: 0.8mm 1.5mm;
+    font-size: 7.4pt; font-weight: normal;
+    padding: 0.5mm 1.5mm;
   }
 
   /* Ocupa o espaço restante até a moldura inferior */
