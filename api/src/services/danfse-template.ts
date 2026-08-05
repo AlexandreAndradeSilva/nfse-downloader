@@ -390,8 +390,9 @@ export function buildDanfseHtml(
 <style>
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
+  /* Altura fixa de uma folha A4: o DANFSe nunca deve quebrar em duas páginas */
   body {
-    margin: 0; width: 21cm; min-height: 29.7cm; position: relative;
+    margin: 0; width: 21cm; height: 29.7cm; overflow: hidden; position: relative;
     padding: 6mm;
     font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
@@ -404,10 +405,11 @@ export function buildDanfseHtml(
     border: 0.7pt solid #000;
     padding: 2mm 2mm 0;
     background: transparent;
-    /* A moldura acompanha a página inteira, como no documento oficial */
-    min-height: 28.5cm;
+    /* Ocupa exatamente a área útil da folha, sem transbordar */
+    height: 100%; overflow: hidden;
     display: flex; flex-direction: column;
   }
+  .sec, .cab, .ident, .infocompl { flex-shrink: 0; }
 
   /* Cabeçalho */
   .cab { display: flex; align-items: center; gap: 4mm; padding-bottom: 2mm; }
@@ -465,7 +467,7 @@ export function buildDanfseHtml(
   /* Ocupa o espaço restante até a moldura inferior */
   .infocompl {
     font-size: 6.8pt; line-height: 1.3; padding: 1.5mm;
-    flex: 1; min-height: 40mm;
+    flex: 1 1 auto; min-height: 20mm; overflow: hidden;
   }
 
   /* Marca d'água de nota encerrada por evento — traço fino, cinza claro,
