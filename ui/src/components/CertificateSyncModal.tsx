@@ -42,6 +42,11 @@ function fmtCnpj(v: string): string {
   return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
+/** Minúsculas e sem acento, para que "grafica" encontre "GRÁFICA". */
+function normaliza(v: string): string {
+  return v.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 interface CertLista {
   cnpj: string;
   nome: string;
@@ -105,10 +110,14 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
     }
   };
 
-  const termo = filtro.trim().toLowerCase();
-  const visiveis = termo
+  const termo = normaliza(filtro);
+  // Só compara CNPJ quando o termo tem dígitos: `''.includes('')` é sempre
+  // verdadeiro e faria toda a lista passar ao digitar um nome.
+  const digitos = filtro.replace(/\D/g, '');
+  const visiveis = termo || digitos
     ? certificados.filter(c =>
-      c.nome.toLowerCase().includes(termo) || c.cnpj.includes(termo.replace(/\D/g, '')))
+      (termo !== '' && normaliza(c.nome).includes(termo)) ||
+      (digitos !== '' && c.cnpj.includes(digitos)))
     : certificados;
 
   if (!open) return null;
