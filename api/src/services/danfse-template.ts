@@ -402,7 +402,7 @@ export function buildDanfseHtml(
      para que a marca apareça através dela como no DANFSe oficial. */
   .folha {
     position: relative; z-index: 1;
-    border: 1.4pt solid #000;
+    border: 1.8pt solid #000;
     padding: 2mm 2mm 0;
     background: transparent;
     /* Ocupa exatamente a área útil da folha, sem transbordar */
@@ -424,7 +424,7 @@ export function buildDanfseHtml(
   /* Bloco de identificação (chave + QR) — sem linhas internas, como no original */
   .ident {
     display: flex; align-items: flex-start;
-    border-top: 0.6pt solid #000; border-bottom: 0.6pt solid #000;
+    border-top: 0.5pt solid #000; border-bottom: 0.5pt solid #000;
     padding-bottom: 1mm;
   }
   .ident-esq { flex: 1; min-width: 0; }
@@ -438,7 +438,8 @@ export function buildDanfseHtml(
   .qr-txt { font-size: 5.2pt; line-height: 1.2; margin-top: 0.8mm; }
 
   /* Grade — a borda pertence à seção, não à linha */
-  .sec { border-bottom: 0.6pt solid #000; }
+  /* Divisões internas finas — só a moldura externa (.folha) é forte */
+  .sec { border-bottom: 0.5pt solid #000; }
   .ln { display: flex; width: 100%; }
   .cel {
     padding: 0.7mm 1.5mm;
