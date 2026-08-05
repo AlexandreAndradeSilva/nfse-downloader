@@ -42,8 +42,15 @@ function fmtCnpj(v: string): string {
   return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
+interface CertLista {
+  cnpj: string;
+  nome: string;
+  thumbprint: string;
+  validoAte: string;
+}
+
 export function CertificateSyncModal({ open, onClose, onSync }: Props) {
-  const [phase, setPhase] = useState<'picking' | 'form' | 'error'>('picking');
+  const [phase, setPhase] = useState<'lista' | 'exportando' | 'form' | 'error'>('lista');
   const [cert, setCert] = useState<PickedCert | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [outputFolder, setOutputFolder] = useState('');
@@ -53,35 +60,56 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
   const [tomados, setTomados] = useState(true);
   const [pfxPassword, setPfxPassword] = useState('');
   const [browsingFolder, setBrowsingFolder] = useState(false);
+  const [certificados, setCertificados] = useState<CertLista[]>([]);
+  const [filtro, setFiltro] = useState('');
+  const [carregandoLista, setCarregandoLista] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setPhase('picking');
+    setPhase('lista');
     setCert(null);
     setErrorMsg('');
+    setFiltro('');
+    setCarregandoLista(true);
 
-    // Abre o seletor nativo do Windows imediatamente
-    fetch(`${API}/api/certificates/pick`)
-      .then(async res => {
-        if (res.status === 204) { onClose(); return; } // usuário cancelou
-        if (!res.ok) {
-          const err = await res.json() as { error: string };
-          throw new Error(err.error);
-        }
-        return res.json() as Promise<PickedCert>;
+    fetch(`${API}/api/certificates/scan`)
+      .then(res => {
+        if (!res.ok) throw new Error('Não foi possível ler os certificados do Windows.');
+        return res.json() as Promise<CertLista[]>;
       })
-      .then(picked => {
-        if (!picked) return;
-        setCert(picked);
-        // Pré-preenche a pasta com o default sugerido pelo backend
-        if (picked.defaultOutputFolder) setOutputFolder(picked.defaultOutputFolder);
-        setPhase('form');
-      })
+      .then(setCertificados)
       .catch(err => {
         setErrorMsg((err as Error).message);
         setPhase('error');
-      });
+      })
+      .finally(() => setCarregandoLista(false));
   }, [open]);
+
+  /** Exporta o certificado escolhido e avança para o formulário de busca. */
+  const escolherCertificado = async (thumbprint: string) => {
+    setPhase('exportando');
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${API}/api/certificates/export/${thumbprint}`);
+      if (!res.ok) {
+        const err = await res.json() as { error: string };
+        throw new Error(err.error);
+      }
+      const picked = await res.json() as PickedCert;
+      setCert(picked);
+      if (picked.defaultOutputFolder) setOutputFolder(picked.defaultOutputFolder);
+      setPhase('form');
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+      setPhase('error');
+    }
+  };
+
+  const termo = filtro.trim().toLowerCase();
+  const visiveis = termo
+    ? certificados.filter(c =>
+      c.nome.toLowerCase().includes(termo) || c.cnpj.includes(termo.replace(/\D/g, '')))
+    : certificados;
 
   if (!open) return null;
 
@@ -118,11 +146,65 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
     <div role="dialog" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
 
-        {phase === 'picking' && (
+        {phase === 'lista' && (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-gray-900">Selecione o certificado</h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Fechar">
+                <IconX size={16} />
+              </button>
+            </div>
+
+            <input
+              type="text"
+              value={filtro}
+              onChange={e => setFiltro(e.target.value)}
+              placeholder="Filtrar por nome ou CNPJ…"
+              autoFocus
+              className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900 mb-3"
+            />
+
+            {carregandoLista && (
+              <p className="text-sm text-gray-500 py-6 text-center">Lendo certificados do Windows…</p>
+            )}
+
+            {!carregandoLista && visiveis.length === 0 && (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                {certificados.length === 0
+                  ? 'Nenhum certificado encontrado no repositório Pessoal do Windows.'
+                  : 'Nenhum certificado corresponde ao filtro.'}
+              </p>
+            )}
+
+            <div className="max-h-72 overflow-y-auto -mx-1">
+              {visiveis.map(c => (
+                <button
+                  key={c.thumbprint}
+                  onClick={() => escolherCertificado(c.thumbprint)}
+                  className="w-full text-left px-3 py-2 mx-1 mb-1 rounded border border-gray-200 hover:bg-blue-50 hover:border-blue-300"
+                >
+                  <div className="text-sm font-medium text-gray-900">{c.nome}</div>
+                  <div className="text-xs text-gray-500">
+                    CNPJ: {fmtCnpj(c.cnpj)}{c.validoAte ? ` · válido até ${c.validoAte}` : ''}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end pt-3">
+              <button type="button" onClick={onClose}
+                className="px-4 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
+                Cancelar
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === 'exportando' && (
           <div className="text-center py-8">
-            <div className="text-4xl mb-3" style={{color:'#6366f1'}}><IconLock size={40} /></div>
-            <p className="font-medium text-gray-900">Abrindo seletor de certificados...</p>
-            <p className="text-sm text-gray-400 mt-1">Selecione o certificado na janela do Windows</p>
+            <div className="mb-3" style={{ color: '#6366f1' }}><IconLock size={40} /></div>
+            <p className="font-medium text-gray-900">Preparando o certificado…</p>
+            <p className="text-sm text-gray-400 mt-1">O Windows pode pedir sua autorização</p>
           </div>
         )}
 
@@ -130,11 +212,20 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
           <div className="py-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-red-700">Erro ao selecionar certificado</h2>
-              <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><IconX size={16} /></button>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Fechar">
+                <IconX size={16} />
+              </button>
             </div>
             <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700 mb-4">{errorMsg}</div>
-            <div className="flex justify-end">
-              <button onClick={onClose} className="px-4 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">Fechar</button>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setPhase('lista')}
+                className="px-4 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
+                Voltar
+              </button>
+              <button onClick={onClose}
+                className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700">
+                Fechar
+              </button>
             </div>
           </div>
         )}
@@ -184,7 +275,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
                     type="button"
                     onClick={handleBrowseFolder}
                     disabled={browsingFolder}
-                    className="px-3 py-1.5 rounded border border-gray-300 text-sm hover:bg-gray-50 whitespace-nowrap"
+                    className="px-3 py-1.5 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 whitespace-nowrap"
                   >
                     {browsingFolder ? '...' : <><IconFolder size={13} /> Escolher</>}
                   </button>
@@ -227,7 +318,7 @@ export function CertificateSyncModal({ open, onClose, onSync }: Props) {
               {errorMsg && <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-700">{errorMsg}</div>}
 
               <div className="flex justify-end gap-2 pt-1">
-                <button type="button" onClick={onClose} className="px-4 py-2 rounded border border-gray-300 text-sm hover:bg-gray-50">Cancelar</button>
+                <button type="button" onClick={onClose} className="px-4 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">Cancelar</button>
                 <button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700">Buscar Notas</button>
               </div>
             </form>

@@ -22,24 +22,51 @@ export function GeneratePdfsModal({ open, companies, defaultCnpj, onClose }: Pro
   const [tipo, setTipo] = useState<GeneratePdfsOptions['tipo']>('todos');
   const [incluirEncerradas, setIncluirEncerradas] = useState(true);
   const [running, setRunning] = useState(false);
-  const [log, setLog] = useState<string[]>([]);
+  const [status, setStatus] = useState('');
+  const [feitos, setFeitos] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [concluido, setConcluido] = useState(false);
 
   if (!open) return null;
 
   const cnpjSelecionado = cnpj || defaultCnpj || companies[0]?.cnpj || '';
 
+  /**
+   * O backend informa o andamento em texto ("N notas sem PDF", "4/6 gerados").
+   * Extrair os números permite mostrar uma barra em vez de um log.
+   */
+  const lerProgresso = (msg: string): void => {
+    const totalInicial = msg.match(/^(\d+)\s+nota\(s\)/);
+    if (totalInicial) { setTotal(Number(totalInicial[1])); setFeitos(0); return; }
+
+    const parcial = msg.match(/(\d+)\/(\d+)\s+gerados/);
+    if (parcial) { setFeitos(Number(parcial[1])); setTotal(Number(parcial[2])); }
+  };
+
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();
     if (!cnpjSelecionado) return;
     setRunning(true);
-    setLog([]);
+    setConcluido(false);
+    setFeitos(0);
+    setTotal(0);
+    setStatus('Procurando notas sem PDF…');
+
     startGeneratePdfs(
       cnpjSelecionado,
       { dataInicio, dataFim, tipo, incluirEncerradas },
-      ev => setLog(prev => [...prev.slice(-60), ev.message]),
+      ev => {
+        setStatus(ev.message);
+        if (ev.type === 'done') { setConcluido(true); setFeitos(t => Math.max(t, total)); }
+        else lerProgresso(ev.message);
+      },
       () => setRunning(false),
     );
   };
+
+  // Sem total conhecido ainda, a barra fica indeterminada (varredura em curso)
+  const indeterminada = running && total === 0;
+  const pct = concluido ? 100 : total > 0 ? Math.round((feitos / total) * 100) : 0;
 
   return (
     <div role="dialog" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -99,9 +126,20 @@ export function GeneratePdfsModal({ open, companies, defaultCnpj, onClose }: Pro
             branco para cobrir todo o histórico.
           </p>
 
-          {log.length > 0 && (
-            <div className="bg-gray-50 border border-gray-200 rounded p-2 text-xs text-gray-600 max-h-32 overflow-y-auto font-mono">
-              {log.map((l, i) => <div key={i}>{l}</div>)}
+          {(running || concluido) && (
+            <div>
+              <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${concluido ? 'bg-green-500' : 'bg-blue-600'} ${indeterminada ? 'barra-indeterminada' : ''}`}
+                  style={indeterminada ? undefined : { width: `${pct}%`, transition: 'width .3s ease' }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-1.5">
+                <span className="text-xs text-gray-600">{status}</span>
+                {total > 0 && !concluido && (
+                  <span className="text-xs font-medium text-gray-500 whitespace-nowrap ml-2">{feitos}/{total}</span>
+                )}
+              </div>
             </div>
           )}
 

@@ -109,8 +109,37 @@ describe('sync-engine', () => {
 
     expect(result.foraPeriodo).toBe(1);
     expect(result.prestados).toBe(0);
-    // fora do período ainda assim é gravado no disco
-    expect(existsSync(join(OUTPUT, company.nome, '052026', 'prestados', 'NFS 102.xml'))).toBe(true);
+    // O filtro do usuário decide o que vai para o disco: fora do período não grava
+    expect(existsSync(join(OUTPUT, company.nome, '052026'))).toBe(false);
+  });
+
+  it('grava apenas o que está dentro do período pedido', async () => {
+    const dentro = await makeXmlB64('12345678000100', 201, '2026-06-15');
+    const fora = await makeXmlB64('12345678000100', 202, '2026-08-15');
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(lote([
+        { NSU: 201, ArquivoXml: dentro },
+        { NSU: 202, ArquivoXml: fora },
+      ]))
+      .mockResolvedValueOnce(nenhum());
+
+    const result = await runSync({ ...company, lastNsu: 200 }, mockFetch, () => {}, { dateRange: JUNHO_2026 });
+
+    expect(result.prestados).toBe(1);
+    expect(result.foraPeriodo).toBe(1);
+    expect(existsSync(join(OUTPUT, company.nome, '062026', 'prestados', 'NFS 201.xml'))).toBe(true);
+    expect(existsSync(join(OUTPUT, company.nome, '082026'))).toBe(false);
+  });
+
+  it('sem filtro de data, grava tudo', async () => {
+    const maio = await makeXmlB64('12345678000100', 301, '2026-05-10');
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce(lote([{ NSU: 301, ArquivoXml: maio }]))
+      .mockResolvedValueOnce(nenhum());
+
+    await runSync({ ...company, lastNsu: 300 }, mockFetch, () => {}, {});
+
+    expect(existsSync(join(OUTPUT, company.nome, '052026', 'prestados', 'NFS 301.xml'))).toBe(true);
   });
 
   it('conta erro mas continua o loop quando um NSU falha', async () => {

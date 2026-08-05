@@ -9,9 +9,26 @@ html, body, #root {
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
+/* Os modais têm fundo branco: sem isto herdam o `color: white` do tema escuro
+   e qualquer texto sem classe de cor fica invisível. */
+[role="dialog"] {
+  color: #111827;
+}
+
 * { box-sizing: border-box; }
 
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Barra de progresso sem total conhecido: percorre a trilha continuamente */
+@keyframes barra-desliza {
+  0%   { margin-left: -35%; width: 35%; }
+  50%  { width: 45%; }
+  100% { margin-left: 100%; width: 35%; }
+}
+
+.barra-indeterminada {
+  animation: barra-desliza 1.1s ease-in-out infinite;
 }

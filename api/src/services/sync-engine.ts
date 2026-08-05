@@ -158,7 +158,8 @@ export async function runSync(
             company.cnpj,
             company.outputFolder,
             company.nome,
-            index
+            index,
+            options.dateRange
           )
         )
       );
@@ -172,22 +173,27 @@ export async function runSync(
           onProgress(`[ERRO] NSU ${nsu}: ${(result.reason as Error).message}`);
         } else {
           const saved = result.value;
-          index.set(nsu, {
-            chave: saved.chaveAcesso,
-            tipo: saved.tipo,
-            dhEmi: saved.dhEmi,
-            dhProc: saved.dhProc,
-            // Índice guarda caminho relativo com "/" — mesma convenção do xml-saver
-            arquivo: relative(companyDir, saved.filePath).split(sep).join('/'),
-            eventoTipo: saved.eventoTipo,
-          });
+          // Só entra no índice o que existe em disco: um documento fora do
+          // período não foi gravado e precisa ser rebaixado se o filtro mudar.
+          if (saved.salvo) {
+            index.set(nsu, {
+              chave: saved.chaveAcesso,
+              tipo: saved.tipo,
+              dhEmi: saved.dhEmi,
+              dhProc: saved.dhProc,
+              // Índice guarda caminho relativo com "/" — mesma convenção do xml-saver
+              arquivo: relative(companyDir, saved.filePath).split(sep).join('/'),
+              eventoTipo: saved.eventoTipo,
+            });
+          }
           conta(saved, false);
           const rotulo = saved.eventoTipo === 'cancelamento' ? 'cancelamento'
             : saved.eventoTipo === 'substituicao' ? 'substituição'
               : saved.eventoTipo === 'outro' ? 'evento'
                 : saved.tipo;
-          const sufixo = isWithinRange(saved, options.dateRange) ? 'salvo' : 'salvo (fora do período)';
-          onProgress(`NSU ${nsu} → ${rotulo} (${saved.competencia}) ${sufixo}`);
+          onProgress(saved.salvo
+            ? `NSU ${nsu} → ${rotulo} (${saved.competencia}) salvo`
+            : `NSU ${nsu} → fora do período, ignorado`);
         }
         if (nsu >= cursor) cursor = nsu + 1;
       }

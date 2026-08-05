@@ -27,6 +27,8 @@ export interface SavedXmlInfo {
   dhEmi: string | null;   // ISO cru do XML (dps.dhEmi) — null quando ausente
   dhProc: string | null;  // ISO cru do XML (infNFSe.dhProc; dhCanc/dhEvento p/ eventos)
   eventoTipo?: EventoTipo;
+  /** false quando o documento ficou fora do período e nada foi gravado em disco. */
+  salvo: boolean;
 }
 
 // Extrai um campo de tag XML usando regex — evita perda de precisão numérica do parser
@@ -40,8 +42,13 @@ function asObject(v: unknown): Record<string, unknown> {
 }
 
 /**
- * Decodifica (base64+gzip), classifica e grava o documento. Nunca descarta:
- * o filtro por período é decidido fora daqui (ver `isWithinRange`).
+ * Decodifica (base64+gzip), classifica e grava o documento.
+ *
+ * Com `dateRange`, uma NFS-e fora do período não é gravada — o filtro do
+ * usuário decide o que vai para o disco.
+ *
+ * Eventos são sempre gravados, mesmo fora do período: é o evento que define a
+ * situação da nota, e descartá-lo faria uma nota cancelada aparecer como ativa.
  */
 export async function decodeAndSave(
   xmlBase64Gzip: string,
@@ -50,6 +57,7 @@ export async function decodeAndSave(
   outputFolder: string,
   nomeEmpresa: string,
   index: NsuIndex,
+  dateRange?: DateRange,
 ): Promise<SavedXmlInfo> {
   const buffer = Buffer.from(xmlBase64Gzip, 'base64');
   const decompressed = await gunzip(buffer);
@@ -64,7 +72,7 @@ export async function decodeAndSave(
     return saveEvento(xmlStr, parsed, nsu, outputFolder, nomeEmpresa, index);
   }
 
-  return saveNfse(xmlStr, parsed, nsu, cnpjEmpresa, outputFolder, nomeEmpresa, index);
+  return saveNfse(xmlStr, parsed, nsu, cnpjEmpresa, outputFolder, nomeEmpresa, index, dateRange);
 }
 
 /** true se dhEmi OU dhProc cair no range; sem nenhuma data válida → true (não perder nota). */
@@ -97,6 +105,7 @@ function saveNfse(
   outputFolder: string,
   nomeEmpresa: string,
   index: NsuIndex,
+  dateRange?: DateRange,
 ): SavedXmlInfo {
   const infNFSe = asObject(asObject(parsed.NFSe).infNFSe);
 
@@ -124,8 +133,13 @@ function saveNfse(
   if (jaGravado) {
     const abs = join(companyDir, jaGravado);
     if (existsSync(abs)) {
-      return { nsu, tipo, competencia, filePath: abs, chaveAcesso, dhEmi, dhProc };
+      return { nsu, tipo, competencia, filePath: abs, chaveAcesso, dhEmi, dhProc, salvo: true };
     }
+  }
+
+  // Fora do período pedido: nada vai para o disco.
+  if (!isWithinRange({ dhEmi, dhProc }, dateRange)) {
+    return { nsu, tipo, competencia, filePath: '', chaveAcesso, dhEmi, dhProc, salvo: false };
   }
 
   const dir = join(companyDir, competencia, tipo);
@@ -137,7 +151,7 @@ function saveNfse(
   }
   index.registerFile(chaveAcesso, toIndexPath(companyDir, xmlPath));
 
-  return { nsu, tipo, competencia, filePath: xmlPath, chaveAcesso, dhEmi, dhProc };
+  return { nsu, tipo, competencia, filePath: xmlPath, chaveAcesso, dhEmi, dhProc, salvo: true };
 }
 
 /**
@@ -249,6 +263,7 @@ function saveEvento(
     dhEmi: null,
     dhProc: dhEvento || null,
     eventoTipo,
+    salvo: true,
   };
 }
 
