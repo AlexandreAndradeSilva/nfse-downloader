@@ -75,3 +75,32 @@ describe('mergeMove', () => {
     expect(existsSync(join(TMP, 'dst'))).toBe(false);
   });
 });
+
+describe('writeConfig', () => {
+  it('normaliza outputFolder com mojibake ao gravar', async () => {
+    // A UI reenvia a empresa inteira; sem normalizar, um caminho quebrado
+    // voltava para o disco e as notas iam para uma pasta fantasma.
+    const bom = join(TMP, 'Área de Trabalho', 'nfs');
+    mkdirSync(bom, { recursive: true });
+
+    const cwd = process.cwd();
+    const sandbox = join(TMP, 'cfg');
+    mkdirSync(sandbox, { recursive: true });
+    process.chdir(sandbox);
+    try {
+      // import dinâmico: o módulo resolve o caminho do config no load
+      const { writeConfig, readConfig } = await import('../src/config-store.js?t=' + Date.now());
+      writeConfig({
+        companies: [{
+          cnpj: '1', nome: 'X',
+          pfxPath: '', pfxPassword: '',
+          outputFolder: join(TMP, '�rea de Trabalho', 'nfs'),
+          baseUrl: '', ambiente: 'PRODUCAO', lastNsu: 0, lastSync: null,
+        }],
+      });
+      expect(readConfig().companies[0].outputFolder).toBe(bom);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+});
