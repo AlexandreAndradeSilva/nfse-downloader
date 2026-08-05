@@ -402,7 +402,7 @@ export function buildDanfseHtml(
      para que a marca apareça através dela como no DANFSe oficial. */
   .folha {
     position: relative; z-index: 1;
-    border: 1.8pt solid #000;
+    border: 1pt solid #000;
     padding: 2mm 2mm 0;
     background: transparent;
     /* Ocupa exatamente a área útil da folha, sem transbordar */
