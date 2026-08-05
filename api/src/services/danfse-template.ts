@@ -392,9 +392,21 @@ export function buildDanfseHtml(
   * { box-sizing: border-box; }
   body {
     margin: 0; width: 21cm; min-height: 29.7cm; position: relative;
-    padding: 8mm 8mm 6mm;
+    padding: 6mm;
     font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  /* Moldura externa do documento. Fica acima da marca d'água e sem fundo,
+     para que a marca apareça através dela como no DANFSe oficial. */
+  .folha {
+    position: relative; z-index: 1;
+    border: 0.7pt solid #000;
+    padding: 2mm 2mm 0;
+    background: transparent;
+    /* A moldura acompanha a página inteira, como no documento oficial */
+    min-height: 28.5cm;
+    display: flex; flex-direction: column;
   }
 
   /* Cabeçalho */
@@ -450,24 +462,28 @@ export function buildDanfseHtml(
     padding: 1mm 1.5mm;
   }
 
+  /* Ocupa o espaço restante até a moldura inferior */
   .infocompl {
     font-size: 6.8pt; line-height: 1.3; padding: 1.5mm;
-    min-height: 45mm;
+    flex: 1; min-height: 40mm;
   }
 
-  /* Marca d'água de nota encerrada por evento */
+  /* Marca d'água de nota encerrada por evento — traço fino, cinza claro,
+     desenhada atrás do conteúdo (z-index 0) como no documento oficial. */
   .marca {
-    position: absolute; top: 40%; left: 0; width: 21cm;
-    text-align: center;
-    font-size: 78pt; font-weight: bold; color: #000;
-    opacity: 0.13; letter-spacing: 3pt;
+    position: absolute; top: 38%; left: 0; z-index: 0;
+    width: 21cm; text-align: center;
+    font-size: 76pt; font-weight: normal; color: #c8c8c8;
+    letter-spacing: 6pt;
     transform: rotate(-45deg); transform-origin: center;
     pointer-events: none;
   }
 </style>
 ${marca}
+<div class="folha">
 ${cabecalho}
 ${identificacao}
 ${corpo}
+</div>
 `;
 }
