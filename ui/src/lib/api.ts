@@ -4,8 +4,7 @@ import type { SyncOptions } from '../components/SyncModal';
 export type { Company };
 export type { SyncOptions };
 
-// URL base da API — usa VITE_API_URL em produção (ngrok), vazio em dev (proxy Vite)
-const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+import { API_BASE as API } from './api-base';
 
 export interface CertInfo {
   thumbprint: string;

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { browseFolder } from '../lib/api';
-
-const API = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+import { API_BASE as API } from '../lib/api-base';
 import { IconLock, IconFolder, IconX } from './Icons';
 
 export interface CertSyncParams {
