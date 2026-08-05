@@ -393,7 +393,7 @@ export function buildDanfseHtml(
   /* Altura fixa de uma folha A4: o DANFSe nunca deve quebrar em duas páginas */
   body {
     margin: 0; width: 21cm; height: 29.7cm; overflow: hidden; position: relative;
-    padding: 6mm;
+    padding: 3mm;
     font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
@@ -412,13 +412,13 @@ export function buildDanfseHtml(
   .sec, .cab, .ident, .infocompl { flex-shrink: 0; }
 
   /* Cabeçalho */
-  .cab { display: flex; align-items: center; gap: 4mm; padding-bottom: 2mm; }
-  .cab-logo { width: 42mm; flex-shrink: 0; }
+  .cab { display: flex; align-items: center; gap: 4mm; padding-bottom: 1.5mm; }
+  .cab-logo { width: 44mm; flex-shrink: 0; }
   .cab-logo img { width: 100%; height: auto; }
   .cab-tit { flex: 1; text-align: center; }
-  .cab-tit .t1 { font-size: 11pt; font-weight: bold; }
-  .cab-tit .t2 { font-size: 9pt; font-weight: bold; }
-  .cab-pref { width: 52mm; flex-shrink: 0; font-size: 6.5pt; line-height: 1.25; }
+  .cab-tit .t1 { font-size: 12.5pt; font-weight: bold; }
+  .cab-tit .t2 { font-size: 10pt; font-weight: bold; }
+  .cab-pref { width: 54mm; flex-shrink: 0; font-size: 7.2pt; line-height: 1.25; }
   .cab-pref .p1 { font-weight: bold; }
 
   /* Bloco de identificação (chave + QR) — sem linhas internas, como no original */
@@ -428,21 +428,21 @@ export function buildDanfseHtml(
     padding-bottom: 1mm;
   }
   .ident-esq { flex: 1; min-width: 0; }
-  .ident .cel { border-bottom: none; min-height: 6.5mm; }
+  .ident .cel { border-bottom: none; min-height: 5.6mm; }
   .ident-qr {
-    width: 46mm; flex-shrink: 0; padding: 1.5mm 2mm 0;
+    width: 44mm; flex-shrink: 0; padding: 0.8mm 2mm 0;
     display: flex; flex-direction: column; align-items: center; text-align: center;
   }
-  .ident-qr img { width: 21mm; height: 21mm; }
-  .qr-vazio { width: 21mm; height: 21mm; }
-  .qr-txt { font-size: 5pt; line-height: 1.25; margin-top: 1.2mm; }
+  .ident-qr img { width: 16mm; height: 16mm; }
+  .qr-vazio { width: 16mm; height: 16mm; }
+  .qr-txt { font-size: 5.2pt; line-height: 1.2; margin-top: 0.8mm; }
 
   /* Grade — a borda pertence à seção, não à linha */
   .sec { border-bottom: 0.6pt solid #000; }
   .ln { display: flex; width: 100%; }
   .cel {
-    padding: 0.9mm 1.5mm;
-    min-height: 7.5mm;
+    padding: 0.7mm 1.5mm;
+    min-height: 7mm;
     overflow: hidden;
   }
   .cel.s1   { width: 25%; }
@@ -451,23 +451,23 @@ export function buildDanfseHtml(
   .cel.s4   { width: 100%; }
   .cel.s1-3 { width: 33.3333%; }
   .cel.ctr  { text-align: center; }
-  .lb  { font-size: 5.6pt; font-weight: bold; line-height: 1.15; }
-  .vl  { font-size: 7.2pt; line-height: 1.2; word-break: break-word; }
-  .cel.b .vl { font-weight: bold; font-size: 8pt; }
-  .sub { font-size: 7.2pt; line-height: 1.2; }
-  .cel.tit .lb { font-size: 8pt; }
-  .semint { font-size: 7.2pt; padding: 1mm; text-align: center; }
+  .lb  { font-size: 6.4pt; font-weight: bold; line-height: 1.15; }
+  .vl  { font-size: 8.4pt; line-height: 1.2; word-break: break-word; }
+  .cel.b .vl { font-weight: bold; font-size: 9.2pt; }
+  .sub { font-size: 8.4pt; line-height: 1.2; }
+  .cel.tit .lb { font-size: 9.4pt; }
+  .semint { font-size: 8.4pt; padding: 0.8mm; text-align: center; }
 
   /* Barras de seção */
   .barra {
-    font-size: 8pt; font-weight: bold;
-    padding: 1mm 1.5mm;
+    font-size: 9.4pt; font-weight: bold;
+    padding: 0.8mm 1.5mm;
   }
 
   /* Ocupa o espaço restante até a moldura inferior */
   .infocompl {
-    font-size: 6.8pt; line-height: 1.3; padding: 1.5mm;
-    flex: 1 1 auto; min-height: 20mm; overflow: hidden;
+    font-size: 7.6pt; line-height: 1.3; padding: 1.5mm;
+    flex: 1 1 auto; min-height: 15mm; overflow: hidden;
   }
 
   /* Marca d'água de nota encerrada por evento — traço fino, cinza claro,
