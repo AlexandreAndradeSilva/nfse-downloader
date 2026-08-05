@@ -1,11 +1,15 @@
 import { Router } from 'express';
-import { readdirSync, readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { readdirSync, readFileSync, existsSync, writeFileSync, unlinkSync, mkdirSync, renameSync } from 'fs';
+import { basename, dirname, join, relative, sep } from 'path';
 import ExcelJS from 'exceljs';
 import { XMLParser } from 'fast-xml-parser';
 import { PDFDocument } from 'pdf-lib';
 import { getCompany } from '../config-store.js';
 import { buildEventIndex, type EventIndex } from '../services/xml-reader.js';
+import { NsuIndex } from '../services/nsu-index.js';
+import {
+  PASTA_XML, listarCompetencias, listarPdfsIndividuais, listarXmls, nomeConsolidado,
+} from '../services/pasta-notas.js';
 import type { Situacao } from '../types.js';
 
 export const reportsRouter = Router();
@@ -209,12 +213,9 @@ reportsRouter.get('/:cnpj/excel', async (req, res) => {
     for (const tipo of ['tomados', 'prestados'] as const) {
       if (tipoFiltro !== 'todos' && tipoFiltro !== tipo) continue;
       // Notas ativas
-      const tipoDir = join(periodDir, tipo);
-      for (const file of safeDirRead(tipoDir)) {
-        if (!file.endsWith('.xml')) continue;
+      for (const xmlPath of listarXmls(join(periodDir, tipo))) {
         try {
-          const xml = readFileSync(join(tipoDir, file), 'utf-8');
-          const row = parseXmlToRow(xml, tipo, period, eventos);
+          const row = parseXmlToRow(readFileSync(xmlPath, 'utf-8'), tipo, period, eventos);
           if (row) rows.push(row);
         } catch { /* pula */ }
       }
@@ -223,10 +224,9 @@ reportsRouter.get('/:cnpj/excel', async (req, res) => {
     // Notas encerradas por evento, já movidas para as subpastas dedicadas
     const cnpjEmp = cnpj.replace(/\D/g, '').padStart(14, '0');
     for (const [sub, situacao] of [['canceladas', 'cancelada'], ['substituidas', 'substituida']] as const) {
-      for (const file of safeDirRead(join(periodDir, sub))) {
-        if (!file.endsWith('.xml')) continue;
+      for (const xmlPath of listarXmls(join(periodDir, sub))) {
         try {
-          const xml = readFileSync(join(periodDir, sub, file), 'utf-8');
+          const xml = readFileSync(xmlPath, 'utf-8');
           const parsed = parser.parse(xml);
           const inf = parsed?.NFSe?.infNFSe ?? {};
           const emit = inf?.emit ?? {};
@@ -432,73 +432,101 @@ interface PdfInplaceEntry {
 }
 
 // POST /api/reports/:cnpj/pdf-merge-inplace — salva consolidado dentro de cada pasta de origem
-reportsRouter.post('/:cnpj/pdf-merge-inplace', async (req, res) => {
+// POST /api/reports/:cnpj/juntar-pdfs
+// Por competência e tipo: gera "NFS {TIPO} JUNTO.pdf" com as notas ordenadas por
+// data de emissão e recolhe os XMLs para a subpasta "XML NFS".
+// Os PDFs individuais são preservados.
+reportsRouter.post('/:cnpj/juntar-pdfs', async (req, res) => {
   const cnpj = req.params.cnpj.replace(/\D/g, '');
   const company = getCompany(cnpj);
-
   if (!company) {
     res.status(404).json({ error: 'Empresa não encontrada' });
     return;
   }
 
   const companyDir = join(company.outputFolder, company.nome);
-  const nomeBase = company.nome.replace(/\s+/g, '_');
-  const results: Array<{ period: string; tipo: string; count: number; fileName: string }> = [];
+  const results: Array<{ periodo: string; tipo: string; notas: number; arquivo: string; xmls: number }> = [];
 
-  for (const period of safeDirRead(companyDir)) {
-    if (period === 'eventos') continue;
-    for (const tipo of ['tomados', 'prestados'] as const) {
-      const tipoDir = join(companyDir, period, tipo);
-      const consolidatedName = `NFSe_${nomeBase}_${tipo}_consolidado.pdf`;
-      const entries: PdfInplaceEntry[] = [];
+  for (const periodo of listarCompetencias(companyDir)) {
+    for (const tipo of ['tomados', 'prestados', 'canceladas', 'substituidas'] as const) {
+      const tipoDir = join(companyDir, periodo, tipo);
+      const individuais = listarPdfsIndividuais(tipoDir);
+      if (individuais.length === 0) continue;
 
-      for (const file of safeDirRead(tipoDir)) {
-        if (!file.endsWith('.pdf') || file === consolidatedName) continue;
-        const xmlFile = join(tipoDir, file.replace(/\.pdf$/, '.xml'));
-        let date = period;
-        if (existsSync(xmlFile)) {
+      // Ordena por data de emissão, lida do XML correspondente
+      const entradas = individuais.map(pdfPath => {
+        const xmlPath = xmlDoPdf(tipoDir, pdfPath);
+        let data = periodo;
+        if (xmlPath) {
           try {
-            const xml = readFileSync(xmlFile, 'utf-8');
+            const xml = readFileSync(xmlPath, 'utf-8');
             const p = parser.parse(xml);
             const inf = p?.NFSe?.infNFSe ?? {};
             const dps = inf?.DPS?.infDPS ?? {};
-            date = String(dps?.dhEmi ?? inf?.dhProc ?? period);
-          } catch { /* usa period */ }
+            data = String(dps?.dhEmi ?? inf?.dhProc ?? periodo);
+          } catch { /* mantém o período como chave de ordenação */ }
         }
-        entries.push({ date, path: join(tipoDir, file) });
-      }
+        return { data, pdfPath };
+      });
+      entradas.sort((a, b) => a.data.localeCompare(b.data));
 
-      if (entries.length === 0) continue;
-      entries.sort((a, b) => a.date.localeCompare(b.date));
-
-      const mergedPdf = await PDFDocument.create();
-      const merged: string[] = [];
-      for (const entry of entries) {
+      const juntado = await PDFDocument.create();
+      let unidas = 0;
+      for (const { pdfPath } of entradas) {
         try {
-          const pdfBytes = readFileSync(entry.path);
-          const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-          const pages = await mergedPdf.copyPages(srcDoc, srcDoc.getPageIndices());
-          pages.forEach(p => mergedPdf.addPage(p));
-          merged.push(entry.path);
+          const origem = await PDFDocument.load(readFileSync(pdfPath), { ignoreEncryption: true });
+          const paginas = await juntado.copyPages(origem, origem.getPageIndices());
+          paginas.forEach(pg => juntado.addPage(pg));
+          unidas++;
         } catch { /* PDF corrompido — pula */ }
       }
+      if (unidas === 0) continue;
 
-      const mergedBytes = await mergedPdf.save();
-      const outPath = join(tipoDir, consolidatedName);
-      writeFileSync(outPath, Buffer.from(mergedBytes));
+      const nomeArquivo = nomeConsolidado(tipo);
+      writeFileSync(join(tipoDir, nomeArquivo), Buffer.from(await juntado.save()));
 
-      for (const filePath of merged) {
-        try { unlinkSync(filePath); } catch { /* ignora erro ao deletar */ }
+      // Recolhe os XMLs; o índice acompanha para não perder o rastro das notas
+      const destinoXml = join(tipoDir, PASTA_XML);
+      const index = NsuIndex.load(companyDir);
+      let movidos = 0;
+      for (const xmlPath of listarXmls(tipoDir)) {
+        if (dirname(xmlPath) === destinoXml) continue; // já recolhido
+        mkdirSync(destinoXml, { recursive: true });
+        const destino = join(destinoXml, basename(xmlPath));
+        try {
+          if (!existsSync(destino)) renameSync(xmlPath, destino);
+          else unlinkSync(xmlPath);
+          movidos++;
+          const chave = chaveDoXml(destino);
+          if (chave) index.moveFile(chave, relative(companyDir, destino).split(sep).join('/'));
+        } catch { /* arquivo em uso — deixa onde está */ }
       }
+      if (movidos > 0) index.save();
 
-      results.push({ period, tipo, count: merged.length, fileName: consolidatedName });
+      results.push({ periodo, tipo, notas: unidas, arquivo: nomeArquivo, xmls: movidos });
     }
   }
 
   if (results.length === 0) {
-    res.status(404).json({ error: 'Nenhum PDF encontrado para consolidar.' });
+    res.status(404).json({ error: 'Nenhum PDF encontrado para juntar. Use "Gerar PDFs" primeiro.' });
     return;
   }
 
   res.json({ success: true, results });
 });
+
+/** XML correspondente a um PDF, esteja ele ao lado ou já em "XML NFS". */
+function xmlDoPdf(tipoDir: string, pdfPath: string): string | null {
+  const nomeXml = basename(pdfPath).replace(/\.pdf$/i, '.xml');
+  for (const candidato of [join(tipoDir, nomeXml), join(tipoDir, PASTA_XML, nomeXml)]) {
+    if (existsSync(candidato)) return candidato;
+  }
+  return null;
+}
+
+/** Chave de acesso de 50 dígitos lida do XML cru. */
+function chaveDoXml(xmlPath: string): string | null {
+  try {
+    return readFileSync(xmlPath, 'utf-8').match(/Id="NFS([^"]{44,})"/)?.[1] ?? null;
+  } catch { return null; }
+}

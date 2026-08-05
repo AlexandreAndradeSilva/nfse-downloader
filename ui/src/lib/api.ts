@@ -74,6 +74,72 @@ export interface NoteItem {
   situacao?: Situacao;
 }
 
+/** Colunas disponíveis no relatório Excel, na ordem em que saem na planilha. */
+export const COLUNAS_RELATORIO = [
+  { key: 'tipo', label: 'Tipo' },
+  { key: 'situacao', label: 'Situação' },
+  { key: 'periodo', label: 'Período' },
+  { key: 'numeroNFSe', label: 'Nº NFS-e' },
+  { key: 'chaveAcesso', label: 'Chave de Acesso' },
+  { key: 'dataEmissao', label: 'Data Emissão' },
+  { key: 'competencia', label: 'Competência' },
+  { key: 'prestadorCnpj', label: 'Prestador CNPJ' },
+  { key: 'prestadorNome', label: 'Prestador Nome' },
+  { key: 'tomadorCnpj', label: 'Tomador CNPJ' },
+  { key: 'tomadorNome', label: 'Tomador Nome' },
+  { key: 'descricaoServico', label: 'Descrição Serviço' },
+  { key: 'codTribNac', label: 'Cód. Trib. Nac.' },
+  { key: 'codTribMun', label: 'Cód. Trib. Mun.' },
+  { key: 'localPrestacao', label: 'Local Prestação' },
+  { key: 'valorServico', label: 'Valor Serviço' },
+  { key: 'bcISSQN', label: 'BC ISSQN' },
+  { key: 'aliquotaISSQN', label: 'Alíq. ISSQN (%)' },
+  { key: 'issRetido', label: 'ISS Retido' },
+  { key: 'valorISSQN', label: 'Valor ISS' },
+  { key: 'vInss', label: 'INSS (Prev.)' },
+  { key: 'vIrpf', label: 'IRPF' },
+  { key: 'vCsll', label: 'CSLL' },
+  { key: 'vPis', label: 'PIS' },
+  { key: 'vCofins', label: 'COFINS' },
+  { key: 'retPisCofins', label: 'Ret. PIS/COFINS' },
+  { key: 'valorLiquido', label: 'Valor Líquido' },
+] as const;
+
+export interface ExcelOptions {
+  tipo: 'todos' | 'prestados' | 'tomados';
+  dataInicio: string;
+  dataFim: string;
+  colunas: string[];   // vazio = todas
+}
+
+/** Monta a URL do relatório Excel para download direto pelo navegador. */
+export function urlRelatorioExcel(cnpj: string, opts: ExcelOptions): string {
+  const params = new URLSearchParams({ tipo: opts.tipo });
+  if (opts.dataInicio) params.set('dataInicio', opts.dataInicio);
+  if (opts.dataFim) params.set('dataFim', opts.dataFim);
+  if (opts.colunas.length > 0) params.set('colunas', opts.colunas.join(','));
+  return `${API}/api/reports/${cnpj}/excel?${params.toString()}`;
+}
+
+export interface JuntarPdfsResultado {
+  periodo: string;
+  tipo: string;
+  notas: number;
+  arquivo: string;
+  xmls: number;
+}
+
+/** Junta os PDFs por competência e recolhe os XMLs para a pasta "XML NFS". */
+export async function juntarPdfs(cnpj: string): Promise<JuntarPdfsResultado[]> {
+  const res = await fetch(`${API}/api/reports/${cnpj}/juntar-pdfs`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json() as { error: string };
+    throw new Error(err.error);
+  }
+  const data = await res.json() as { results: JuntarPdfsResultado[] };
+  return data.results;
+}
+
 export interface GeneratePdfsOptions {
   dataInicio: string;
   dataFim: string;

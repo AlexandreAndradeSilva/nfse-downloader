@@ -7,6 +7,7 @@ import type { Situacao } from '../types.js';
 import { buildEventIndex } from '../services/xml-reader.js';
 import { importRawXml, isWithinRange } from '../services/xml-saver.js';
 import { NsuIndex } from '../services/nsu-index.js';
+import { listarXmls, pdfDoXml } from '../services/pasta-notas.js';
 import { generateDanfse, type DanfseStamp } from '../services/danfse-generator.js';
 import { downloadDanfsePdf, resetDanfseBreaker, isDanfseBreakerOpen } from '../services/danfse-downloader.js';
 
@@ -128,11 +129,9 @@ notesRouter.get('/:cnpj', (req, res) => {
     const periodDir = join(companyDir, period);
 
     // Notas ativas
-    const tipoDir = join(periodDir, tipo);
-    for (const file of safeDirRead(tipoDir)) {
-      if (!file.endsWith('.xml')) continue;
+    for (const xmlPath of listarXmls(join(periodDir, tipo))) {
       try {
-        const xml = readFileSync(join(tipoDir, file), 'utf-8');
+        const xml = readFileSync(xmlPath, 'utf-8');
         const note = parseNote(xml, tipo);
         if (!note) continue;
         const situacao: Situacao = eventos.canceladas.has(note.chaveAcesso) ? 'cancelada'
@@ -144,10 +143,9 @@ notesRouter.get('/:cnpj', (req, res) => {
 
     // Notas encerradas por evento, já movidas para as subpastas dedicadas
     for (const [sub, situacao] of [['canceladas', 'cancelada'], ['substituidas', 'substituida']] as const) {
-      for (const file of safeDirRead(join(periodDir, sub))) {
-        if (!file.endsWith('.xml')) continue;
+      for (const xmlPath of listarXmls(join(periodDir, sub))) {
         try {
-          const xml = readFileSync(join(periodDir, sub, file), 'utf-8');
+          const xml = readFileSync(xmlPath, 'utf-8');
           // O tipo é detectado pelo CNPJ do emitente: a subpasta não o distingue
           const parsedXml = parser.parse(xml);
           const emitCnpj = String(parsedXml?.NFSe?.infNFSe?.emit?.CNPJ ?? '').replace(/\D/g, '').padStart(14, '0');
@@ -214,11 +212,8 @@ notesRouter.get('/:cnpj/gerar-pdfs', async (req, res) => {
     for (const { nome, stamp } of subPastas) {
       // O filtro de tipo não se aplica às encerradas: a subpasta não distingue tipo
       if (!stamp && tipoFiltro !== 'todos' && tipoFiltro !== nome) continue;
-      const dir = join(companyDir, period, nome);
-      for (const file of safeDirRead(dir)) {
-        if (!file.endsWith('.xml')) continue;
-        const xmlPath = join(dir, file);
-        const pdfPath = xmlPath.replace(/\.xml$/, '.pdf');
+      for (const xmlPath of listarXmls(join(companyDir, period, nome))) {
+        const pdfPath = pdfDoXml(xmlPath);
         if (existsSync(pdfPath)) continue; // já tem PDF
         if (range) {
           try {

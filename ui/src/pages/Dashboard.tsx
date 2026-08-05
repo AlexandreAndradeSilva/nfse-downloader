@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchStats, fetchNotes } from '../lib/api';
+import { fetchStats, fetchNotes, urlRelatorioExcel } from '../lib/api';
 import type { Company, StatsResult } from '../types';
 import type { NotesPage } from '../lib/api';
 import { IconDownload, IconUpload, IconBarChart, IconFile, IconRefresh,
@@ -43,9 +43,10 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
 
   const downloadExcel = (tipo: 'tomados' | 'prestados') => {
     if (!activeCompany) return;
-    const url = `/api/reports/${activeCompany.cnpj}/excel?tipo=${tipo}`;
+    // URL absoluta: na extensão um caminho relativo aponta para a própria
+    // extensão (chrome-extension://…) e o download falha em silêncio.
     const a = document.createElement('a');
-    a.href = url;
+    a.href = urlRelatorioExcel(activeCompany.cnpj, { tipo, dataInicio: '', dataFim: '', colunas: [] });
     a.download = '';
     a.click();
   };

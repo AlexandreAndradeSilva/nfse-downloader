@@ -9,9 +9,10 @@ interface Props {
   onPageChange: (p: Page) => void;
   onBuscarNotas: () => void;
   onGerarPdfs: () => void;
+  onRelatorios: () => void;
 }
 
-export function TopNav({ page, onPageChange, onBuscarNotas, onGerarPdfs }: Props) {
+export function TopNav({ page, onPageChange, onBuscarNotas, onGerarPdfs, onRelatorios }: Props) {
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
@@ -66,6 +67,20 @@ export function TopNav({ page, onPageChange, onBuscarNotas, onGerarPdfs }: Props
 
       {/* Actions */}
       <div style={{ display:'flex', alignItems:'center', gap:10, marginLeft:'auto' }}>
+        <button
+          onClick={onRelatorios}
+          style={{
+            background: 'rgba(255,255,255,.06)',
+            border: '1px solid rgba(255,255,255,.12)',
+            color: 'rgba(255,255,255,.85)',
+            padding: '9px 16px', borderRadius: 9,
+            fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}
+        >
+          Relatórios
+        </button>
+
         <button
           onClick={onGerarPdfs}
           style={{

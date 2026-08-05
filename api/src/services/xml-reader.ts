@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { XMLParser } from 'fast-xml-parser';
+import { listarXmls } from './pasta-notas.js';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -38,13 +39,10 @@ export function readCompanyStats(outputFolder: string, nomeEmpresa: string): Com
   for (const period of safeDirRead(companyDir)) {
     const periodDir = join(companyDir, period);
     for (const tipo of ['tomados', 'prestados'] as const) {
-      const tipoDir = join(periodDir, tipo);
       const target = tipo === 'tomados' ? tomados : prestados;
-      for (const file of safeDirRead(tipoDir)) {
-        if (!file.endsWith('.xml')) continue;
+      for (const xmlPath of listarXmls(join(periodDir, tipo))) {
         try {
-          const xml = readFileSync(join(tipoDir, file), 'utf-8');
-          accumulateFromXml(xml, target);
+          accumulateFromXml(readFileSync(xmlPath, 'utf-8'), target);
         } catch { /* arquivo corrompido — pula */ }
       }
     }
