@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "NFS-e Downloader",
+  "version": "1.0.0",
+  "description": "Download e gestão de NFS-e do Portal Nacional ADN",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_title": "NFS-e Downloader"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:3002/*"
+  ]
+}

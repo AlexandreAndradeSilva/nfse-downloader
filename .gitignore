@@ -13,3 +13,6 @@ config.json
 # Extração automática do PDF da NT 008 (artefato de trabalho)
 docs/referencias/nt-008-texto.txt
 docs/referencias/nt-008-tabela-campos.txt
+
+# Pacote de distribuicao — gerado por scripts/montar-pacote.ps1
+NFS-e-Downloader.zip

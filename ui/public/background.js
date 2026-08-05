@@ -1,0 +1,1 @@
+chrome.action.onClicked.addListener(async()=>{let e=chrome.runtime.getURL(`index.html`),t=await chrome.tabs.query({url:e});t.length>0&&t[0].id?(await chrome.tabs.update(t[0].id,{active:!0}),t[0].windowId&&await chrome.windows.update(t[0].windowId,{focused:!0})):await chrome.tabs.create({url:e})});
