@@ -116,6 +116,22 @@ function endereco(...partes: unknown[]): string {
   return partes.map(s).filter(Boolean).join(', ');
 }
 
+/** Soma dois valores monetários; devolve '' se nenhum estiver presente. */
+function soma(a: unknown, b: unknown): string {
+  const na = parseFloat(s(a));
+  const nb = parseFloat(s(b));
+  if (isNaN(na) && isNaN(nb)) return '';
+  return moeda(String((isNaN(na) ? 0 : na) + (isNaN(nb) ? 0 : nb)));
+}
+
+/** Junta dois percentuais no formato "x% / y%" usado nos campos combinados. */
+function juntaPerc(a: unknown, b: unknown): string {
+  const pa = percentual(a);
+  const pb = percentual(b);
+  if (!pa && !pb) return '';
+  return `${pa || '-'} / ${pb || '-'}`;
+}
+
 const REG_ESP_TRIB: Record<string, string> = {
   '0': 'Nenhum', '1': 'Microempresa Municipal', '2': 'Estimativa',
   '3': 'Sociedade de Profissionais', '4': 'Cooperativa',
@@ -170,6 +186,11 @@ export function extractDanfseData(xmlStr: string): DanfseData {
   const enderNac = emit?.enderNac ?? {};
   const tomaEnd = toma?.end ?? {};
   const tomaEndNac = tomaEnd?.endNac ?? {};
+  // Blocos da reforma tributária — ausentes em NFS-e anteriores à vigência
+  const ibsCbsInf = inf?.IBSCBS ?? {};
+  const valIbsCbs = ibsCbsInf?.valores ?? {};
+  const totCIBS = ibsCbsInf?.totCIBS ?? {};
+  const gIBSCBS = dps?.IBSCBS?.valores?.trib?.gIBSCBS ?? {};
 
   // Chave de acesso: atributo Id sem o prefixo "NFS", lido do XML cru para
   // não perder dígitos na conversão numérica do parser.
@@ -264,12 +285,34 @@ export function extractDanfseData(xmlStr: string): DanfseData {
     vPIS: moeda(piscofins.vPis),
     vCOFINS: moeda(piscofins.vCofins),
 
+    // Tributação IBS / CBS — presente só em NFS-e sob vigência da reforma
+    cstIbsCbs: s(gIBSCBS.CST ?? ''),
+    cClassTrib: s(gIBSCBS.cClassTrib ?? ''),
+    cIndOp: s(ibsCbsInf.cIndOp ?? ''),
+    cLocalidadeIncid: s(ibsCbsInf.cLocalidadeIncid ?? ''),
+    xLocalidadeIncid: s(ibsCbsInf.xLocalidadeIncid ?? '')
+      || municipio(s(ibsCbsInf.cLocalidadeIncid ?? '')),
+    vExclusoesBC: moeda(valIbsCbs.vExclusoesBC),
+    vBCIbsCbs: moeda(valIbsCbs.vBC),
+    pRedAliqIbsCbs: juntaPerc(valIbsCbs?.fed?.pRedAliqUF ?? valIbsCbs?.fed?.pRedAliqMun, valIbsCbs?.fed?.pRedAliqCBS),
+    pIbsUfMun: juntaPerc(valIbsCbs?.uf?.pIBSUF, valIbsCbs?.mun?.pIBSMun),
+    pAliqEfetMun: percentual(valIbsCbs?.mun?.pAliqEfetMun),
+    vIBSMun: moeda(totCIBS?.gIBS?.gIBSMunTot?.vIBSMun),
+    pAliqEfetUF: percentual(valIbsCbs?.uf?.pAliqEfetUF),
+    vIBSUF: moeda(totCIBS?.gIBS?.gIBSUFTot?.vIBSUF),
+    vIBSTot: moeda(totCIBS?.gIBS?.vIBSTot),
+    pCBS: percentual(valIbsCbs?.fed?.pCBS),
+    pAliqEfetCBS: percentual(valIbsCbs?.fed?.pAliqEfetCBS),
+    vCBS: moeda(totCIBS?.gCBS?.vCBS),
+
     // Valor total
     vDescCond: moeda(vDescCondIncond.vDescCond),
     vISSQNRetido: s(tribMun.tpRetISSQN) === '1' ? '' : moeda(valoresNfse.vISSQN),
     vTotalRetFed: totalRetFed > 0 ? moeda(String(totalRetFed)) : '',
     vPisCofinsDebito: moeda(piscofins.vPisCofinsDebito),
     vLiq: moeda(valoresNfse.vLiq),
+    vIbsCbsTot: soma(totCIBS?.gIBS?.vIBSTot, totCIBS?.gCBS?.vCBS),
+    vTotNF: moeda(totCIBS?.vTotNF),
 
     // Totais aproximados dos tributos
     vTotTribFed: moeda(totTrib.vTotTribFed),

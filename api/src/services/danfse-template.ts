@@ -75,12 +75,32 @@ export interface DanfseData {
   xDescricaoRetFed: string;
   vPIS: string;
   vCOFINS: string;
+  // Tributação IBS / CBS (NT 008/2026 — reforma tributária)
+  cstIbsCbs: string;
+  cClassTrib: string;
+  cIndOp: string;
+  cLocalidadeIncid: string;
+  xLocalidadeIncid: string;
+  vExclusoesBC: string;
+  vBCIbsCbs: string;
+  pRedAliqIbsCbs: string;
+  pIbsUfMun: string;
+  pAliqEfetMun: string;
+  vIBSMun: string;
+  pAliqEfetUF: string;
+  vIBSUF: string;
+  vIBSTot: string;
+  pCBS: string;
+  pAliqEfetCBS: string;
+  vCBS: string;
   // Valor total
   vDescCond: string;
   vISSQNRetido: string;
   vTotalRetFed: string;
   vPisCofinsDebito: string;
   vLiq: string;
+  vIbsCbsTot: string;
+  vTotNF: string;
   // Totais aproximados dos tributos
   vTotTribFed: string;
   vTotTribEst: string;
@@ -136,6 +156,14 @@ function barra(texto: string): string {
   return `<div class="barra">${esc(texto)}</div>`;
 }
 
+/**
+ * Agrupa linhas num bloco. Só o bloco recebe borda inferior — dentro dele as
+ * linhas não são separadas, como no DANFSe oficial.
+ */
+function secao(...partes: string[]): string {
+  return `<div class="sec">${partes.join('')}</div>`;
+}
+
 export function buildDanfseHtml(
   d: DanfseData,
   logoDataUrl?: string,
@@ -182,128 +210,173 @@ export function buildDanfseHtml(
 
   const corpo = [
     // ─── Emitente ───────────────────────────────────────────────────────────
-    linha(
-      celula('EMITENTE DA NFS-e', '', { titulo: true, sub: 'Prestador do Serviço' }),
-      celula('CNPJ / CPF / NIF', ou(d.emitCnpj)),
-      celula('Inscrição Municipal', ou(d.emitIm)),
-      celula('Telefone', ou(d.emitTelefone)),
-    ),
-    linha(
-      celula('Nome / Nome Empresarial', ou(d.emitNome), { span: 2 }),
-      celula('E-mail', ou(d.emitEmail), { span: 2 }),
-    ),
-    linha(
-      celula('Endereço', ou(d.emitEndereco), { span: 2 }),
-      celula('Município', ou(d.emitMunicipio)),
-      celula('CEP', ou(d.emitCep)),
-    ),
-    linha(
-      celula('Simples Nacional na Data de Competência', ou(d.emitSimplesNac), { span: 2 }),
-      celula('Regime de Apuração Tributária pelo SN', ou(d.emitRegApTribSN), { span: 2 }),
+    secao(
+      linha(
+        celula('EMITENTE DA NFS-e', '', { titulo: true, sub: 'Prestador do Serviço' }),
+        celula('CNPJ / CPF / NIF', ou(d.emitCnpj)),
+        celula('Inscrição Municipal', ou(d.emitIm)),
+        celula('Telefone', ou(d.emitTelefone)),
+      ),
+      linha(
+        celula('Nome / Nome Empresarial', ou(d.emitNome), { span: 2 }),
+        celula('E-mail', ou(d.emitEmail), { span: 2 }),
+      ),
+      linha(
+        celula('Endereço', ou(d.emitEndereco), { span: 2 }),
+        celula('Município', ou(d.emitMunicipio)),
+        celula('CEP', ou(d.emitCep)),
+      ),
+      linha(
+        celula('Simples Nacional na Data de Competência', ou(d.emitSimplesNac), { span: 2 }),
+        celula('Regime de Apuração Tributária pelo SN', ou(d.emitRegApTribSN), { span: 2 }),
+      ),
     ),
 
     // ─── Tomador ────────────────────────────────────────────────────────────
-    linha(
-      celula('TOMADOR DO SERVIÇO', '', { titulo: true }),
-      celula('CNPJ / CPF / NIF', ou(d.tomaCnpj)),
-      celula('Inscrição Municipal', ou(d.tomaIm)),
-      celula('Telefone', ou(d.tomaTelefone)),
-    ),
-    linha(
-      celula('Nome / Nome Empresarial', ou(d.tomaNome), { span: 2 }),
-      celula('E-mail', ou(d.tomaEmail), { span: 2 }),
-    ),
-    linha(
-      celula('Endereço', ou(d.tomaEndereco), { span: 2 }),
-      celula('Município', ou(d.tomaMunicipio)),
-      celula('CEP', ou(d.tomaCep)),
+    secao(
+      linha(
+        celula('TOMADOR DO SERVIÇO', '', { titulo: true }),
+        celula('CNPJ / CPF / NIF', ou(d.tomaCnpj)),
+        celula('Inscrição Municipal', ou(d.tomaIm)),
+        celula('Telefone', ou(d.tomaTelefone)),
+      ),
+      linha(
+        celula('Nome / Nome Empresarial', ou(d.tomaNome), { span: 2 }),
+        celula('E-mail', ou(d.tomaEmail), { span: 2 }),
+      ),
+      linha(
+        celula('Endereço', ou(d.tomaEndereco), { span: 2 }),
+        celula('Município', ou(d.tomaMunicipio)),
+        celula('CEP', ou(d.tomaCep)),
+      ),
     ),
 
     // ─── Intermediário ──────────────────────────────────────────────────────
-    temInterm
-      ? linha(
-        celula('INTERMEDIÁRIO DO SERVIÇO', '', { titulo: true }),
-        celula('CNPJ / CPF / NIF', ou(d.intermCnpj)),
-        celula('Inscrição Municipal', ou(d.intermIm)),
-        celula('Telefone', ou(d.intermTelefone)),
-      ) + linha(celula('Nome / Nome Empresarial', ou(d.intermNome), { span: 4 }))
-      : `<div class="ln"><div class="cel s4 ctr semint">INTERMEDIÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-e</div></div>`,
+    secao(
+      temInterm
+        ? linha(
+          celula('INTERMEDIÁRIO DO SERVIÇO', '', { titulo: true }),
+          celula('CNPJ / CPF / NIF', ou(d.intermCnpj)),
+          celula('Inscrição Municipal', ou(d.intermIm)),
+          celula('Telefone', ou(d.intermTelefone)),
+        ) + linha(celula('Nome / Nome Empresarial', ou(d.intermNome), { span: 4 }))
+        : '<div class="ln"><div class="cel s4 ctr semint">INTERMEDIÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-e</div></div>',
+    ),
 
     // ─── Serviço prestado ───────────────────────────────────────────────────
-    barra('SERVIÇO PRESTADO'),
-    linha(
-      celula('Código de Tributação Nacional', ou(d.cTribNac ? `${d.cTribNac}${d.xTribNac ? ' - ' + d.xTribNac : ''}` : ''), { minH: 11 }),
-      celula('Código de Tributação Municipal', ou(d.cTribMun ? `${d.cTribMun}${d.xTribMun ? ' - ' + d.xTribMun : ''}` : ''), { minH: 11 }),
-      celula('Local da Prestação', ou(d.xLocPrestacao), { minH: 11 }),
-      celula('País da Prestação', ou(d.xPaisPrestacao), { minH: 11 }),
+    secao(
+      barra('SERVIÇO PRESTADO'),
+      linha(
+        celula('Código de Tributação Nacional', ou(d.cTribNac ? `${d.cTribNac}${d.xTribNac ? ' - ' + d.xTribNac : ''}` : ''), { minH: 11 }),
+        celula('Código de Tributação Municipal', ou(d.cTribMun ? `${d.cTribMun}${d.xTribMun ? ' - ' + d.xTribMun : ''}` : ''), { minH: 11 }),
+        celula('Local da Prestação', ou(d.xLocPrestacao), { minH: 11 }),
+        celula('País da Prestação', ou(d.xPaisPrestacao), { minH: 11 }),
+      ),
+      linha(celula('Descrição do Serviço', ou(d.xDescServ), { span: 4, minH: 9 })),
     ),
-    linha(celula('Descrição do Serviço', ou(d.xDescServ), { span: 4, minH: 9 })),
 
     // ─── Tributação municipal ───────────────────────────────────────────────
-    barra('TRIBUTAÇÃO MUNICIPAL'),
-    linha(
-      celula('Tributação do ISSQN', ou(d.tribISSQN)),
-      celula('País Resultado da Prestação do Serviço', ou(d.xPaisResult)),
-      celula('Município de Incidência do ISSQN', ou(d.xMunicipioIncid)),
-      celula('Regime Especial de Tributação', ou(d.emitRegEspTrib)),
-    ),
-    linha(
-      celula('Tipo de Imunidade', ou(d.tpImunidade)),
-      celula('Suspensão da Exigibilidade do ISSQN', ou(d.tpSuspensao)),
-      celula('Número Processo Suspensão', ou(d.nProcessoSusp)),
-      celula('Benefício Municipal', ou(d.tpBM)),
-    ),
-    linha(
-      celula('Valor do Serviço', ou(d.vServico)),
-      celula('Desconto Incondicionado', ou(d.vDescIncond)),
-      celula('Total Deduções/Reduções', ou(d.vDR)),
-      celula('Cálculo do BM', ou(d.vCalcBM)),
-    ),
-    linha(
-      celula('BC ISSQN', ou(d.vBC)),
-      celula('Alíquota Aplicada', ou(d.pAliqAplic)),
-      celula('Retenção do ISSQN', ou(d.tpRetISSQN)),
-      celula('ISSQN Apurado', ou(d.vISSQN)),
+    secao(
+      barra('TRIBUTAÇÃO MUNICIPAL (ISSQN)'),
+      linha(
+        celula('Tributação do ISSQN', ou(d.tribISSQN)),
+        celula('País Resultado da Prestação do Serviço', ou(d.xPaisResult)),
+        celula('Município de Incidência do ISSQN', ou(d.xMunicipioIncid)),
+        celula('Regime Especial de Tributação', ou(d.emitRegEspTrib)),
+      ),
+      linha(
+        celula('Tipo de Imunidade', ou(d.tpImunidade)),
+        celula('Suspensão da Exigibilidade do ISSQN', ou(d.tpSuspensao)),
+        celula('Número Processo Suspensão', ou(d.nProcessoSusp)),
+        celula('Benefício Municipal', ou(d.tpBM)),
+      ),
+      linha(
+        celula('Valor do Serviço', ou(d.vServico)),
+        celula('Desconto Incondicionado', ou(d.vDescIncond)),
+        celula('Total Deduções/Reduções', ou(d.vDR)),
+        celula('Cálculo do BM', ou(d.vCalcBM)),
+      ),
+      linha(
+        celula('BC ISSQN', ou(d.vBC)),
+        celula('Alíquota Aplicada', ou(d.pAliqAplic)),
+        celula('Retenção do ISSQN', ou(d.tpRetISSQN)),
+        celula('ISSQN Apurado', ou(d.vISSQN)),
+      ),
     ),
 
     // ─── Tributação federal ─────────────────────────────────────────────────
-    barra('TRIBUTAÇÃO FEDERAL'),
-    linha(
-      celula('IRRF', ou(d.vIRRF)),
-      celula('Contribuição Previdenciária - Retida', ou(d.vCP)),
-      celula('Contribuições Sociais - Retidas', ou(d.vCSLL)),
-      celula('Descrição Contrib. Sociais - Retidas', ou(d.xDescricaoRetFed)),
+    secao(
+      barra('TRIBUTAÇÃO FEDERAL (EXCETO CBS)'),
+      linha(
+        celula('IRRF', ou(d.vIRRF)),
+        celula('Contribuição Previdenciária - Retida', ou(d.vCP)),
+        celula('Contribuições Sociais - Retidas', ou(d.vCSLL)),
+        celula('Descrição Contrib. Sociais - Retidas', ou(d.xDescricaoRetFed)),
+      ),
+      linha(
+        celula('PIS - Débito Apuração Própria', ou(d.vPIS)),
+        celula('COFINS - Débito Apuração Própria', ou(d.vCOFINS)),
+        celula('', '', { span: 2 }),
+      ),
     ),
-    linha(
-      celula('PIS - Débito Apuração Própria', ou(d.vPIS)),
-      celula('COFINS - Débito Apuração Própria', ou(d.vCOFINS)),
-      celula('', '', { span: 2 }),
+
+    // ─── Tributação IBS / CBS (NT 008/2026 — reforma tributária) ────────────
+    secao(
+      barra('TRIBUTAÇÃO IBS / CBS'),
+      linha(
+        celula('CST / cClassTrib', ou([d.cstIbsCbs, d.cClassTrib].filter(Boolean).join(' / '))),
+        celula('Indicador de Operação / Código IBGE Incidência / Município Incidência / Sigla UF',
+          ou([d.cIndOp, d.cLocalidadeIncid, d.xLocalidadeIncid].filter(Boolean).join(' / ')), { span: 3 }),
+      ),
+      linha(
+        celula('Exclusões e Reduções da Base de Cálculo', ou(d.vExclusoesBC)),
+        celula('Base de Cálculo Após Exclusões e Reduções', ou(d.vBCIbsCbs)),
+        celula('Red. Alíquota IBS / Red. Alíquota CBS', ou(d.pRedAliqIbsCbs)),
+        celula('Alíquota – IBS UF / IBS Mun', ou(d.pIbsUfMun)),
+      ),
+      linha(
+        celula('Alíq. Efetiva Municipal – IBS', ou(d.pAliqEfetMun)),
+        celula('Valor Apurado Municipal – IBS', ou(d.vIBSMun)),
+        celula('Alíq. Efetiva Estadual – IBS', ou(d.pAliqEfetUF)),
+        celula('Valor Apurado Estadual – IBS', ou(d.vIBSUF)),
+      ),
+      linha(
+        celula('Valor Total Apurado – IBS', ou(d.vIBSTot)),
+        celula('Alíquota - CBS', ou(d.pCBS)),
+        celula('Alíquota Efetiva – CBS', ou(d.pAliqEfetCBS)),
+        celula('Valor Total Apurado – CBS', ou(d.vCBS)),
+      ),
     ),
 
     // ─── Valor total ────────────────────────────────────────────────────────
-    barra('VALOR TOTAL DA NFS-E'),
-    linha(
-      celula('Valor do Serviço', ou(d.vServico)),
-      celula('Desconto Condicionado', ou(d.vDescCond)),
-      celula('Desconto Incondicionado', ou(d.vDescIncond)),
-      celula('ISSQN Retido', ou(d.vISSQNRetido)),
-    ),
-    linha(
-      celula('Total das Retenções Federais', ou(d.vTotalRetFed)),
-      celula('PIS/COFINS - Débito Apur. Própria', ou(d.vPisCofinsDebito), { span: 2 }),
-      celula('Valor Líquido da NFS-e', ou(d.vLiq), { bold: true }),
+    secao(
+      barra('VALOR TOTAL DA NFS-E'),
+      linha(
+        celula('Valor da Operação / Serviço', ou(d.vServico)),
+        celula('Desconto Condicionado', ou(d.vDescCond)),
+        celula('Desconto Incondicionado', ou(d.vDescIncond)),
+        celula('ISSQN Retido', ou(d.vISSQNRetido)),
+      ),
+      linha(
+        celula('Total das Retenções (ISSQN / Federais)', ou(d.vTotalRetFed)),
+        celula('Valor Líquido da NFS-e', ou(d.vLiq), { bold: true }),
+        celula('Total do IBS/CBS', ou(d.vIbsCbsTot)),
+        celula('Valor Líquido da NFS-e + IBS/CBS', ou(d.vTotNF), { bold: true }),
+      ),
     ),
 
     // ─── Totais aproximados dos tributos ────────────────────────────────────
-    barra('TOTAIS APROXIMADOS DOS TRIBUTOS'),
-    `<div class="ln">
-      <div class="cel s1-3 ctr"><div class="lb">Federais</div><div class="vl">${esc(ou(d.vTotTribFed))}</div></div>
-      <div class="cel s1-3 ctr"><div class="lb">Estaduais</div><div class="vl">${esc(ou(d.vTotTribEst))}</div></div>
-      <div class="cel s1-3 ctr"><div class="lb">Municipais</div><div class="vl">${esc(ou(d.vTotTribMun))}</div></div>
-    </div>`,
+    secao(
+      barra('TOTAIS APROXIMADOS DOS TRIBUTOS'),
+      `<div class="ln">
+        <div class="cel s1-3 ctr"><div class="lb">Federais</div><div class="vl">${esc(ou(d.vTotTribFed))}</div></div>
+        <div class="cel s1-3 ctr"><div class="lb">Estaduais</div><div class="vl">${esc(ou(d.vTotTribEst))}</div></div>
+        <div class="cel s1-3 ctr"><div class="lb">Municipais</div><div class="vl">${esc(ou(d.vTotTribMun))}</div></div>
+      </div>`,
+    ),
 
     // ─── Informações complementares ─────────────────────────────────────────
-    barra('INFORMAÇÕES COMPLEMENTARES'),
+    secao(barra('INFORMAÇÕES COMPLEMENTARES')),
     `<div class="infocompl">${
       [d.cNBS ? `<b>NBS:</b> ${esc(d.cNBS)}` : '', esc(d.xInfComp)].filter(Boolean).join('<br>')
     }</div>`,
@@ -350,10 +423,10 @@ export function buildDanfseHtml(
   .qr-vazio { width: 21mm; height: 21mm; }
   .qr-txt { font-size: 5pt; line-height: 1.25; margin-top: 1.2mm; }
 
-  /* Grade */
+  /* Grade — a borda pertence à seção, não à linha */
+  .sec { border-bottom: 0.6pt solid #000; }
   .ln { display: flex; width: 100%; }
   .cel {
-    border-bottom: 0.6pt solid #000;
     padding: 0.9mm 1.5mm;
     min-height: 7.5mm;
     overflow: hidden;
@@ -369,16 +442,12 @@ export function buildDanfseHtml(
   .cel.b .vl { font-weight: bold; font-size: 8pt; }
   .sub { font-size: 7.2pt; line-height: 1.2; }
   .cel.tit .lb { font-size: 8pt; }
-  .semint {
-    font-size: 7.2pt; padding: 1mm; text-align: center;
-    border-bottom: 0.6pt solid #000;
-  }
+  .semint { font-size: 7.2pt; padding: 1mm; text-align: center; }
 
   /* Barras de seção */
   .barra {
     font-size: 8pt; font-weight: bold;
     padding: 1mm 1.5mm;
-    border-bottom: 0.6pt solid #000;
   }
 
   .infocompl {
