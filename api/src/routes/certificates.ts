@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { join } from 'path';
-import { pickCertificateFromStore, scanWindowsCerts, openFolderDialog } from '../services/cert-scanner.js';
+import { pickCertificateFromStore, scanWindowsCerts, openFolderDialog, exportCertByThumbprint } from '../services/cert-scanner.js';
 
 export const certificatesRouter = Router();
 
@@ -13,6 +13,22 @@ certificatesRouter.get('/pick', async (_req, res) => {
       return;
     }
     // Sugere pasta padrão para salvar as notas
+    const userProfile = process.env.USERPROFILE ?? process.env.HOME ?? '';
+    const defaultOutputFolder = join(userProfile, 'Documents', 'NFSe');
+    res.json({ ...cert, defaultOutputFolder });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+// Exporta certificado por thumbprint (usado pela lista filtrável)
+certificatesRouter.get('/export/:thumbprint', async (req, res) => {
+  try {
+    const cert = await exportCertByThumbprint(req.params.thumbprint);
+    if (!cert) {
+      res.status(404).json({ error: 'Certificado não encontrado no repositório Windows.' });
+      return;
+    }
     const userProfile = process.env.USERPROFILE ?? process.env.HOME ?? '';
     const defaultOutputFolder = join(userProfile, 'Documents', 'NFSe');
     res.json({ ...cert, defaultOutputFolder });

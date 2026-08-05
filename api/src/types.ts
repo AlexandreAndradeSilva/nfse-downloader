@@ -40,3 +40,8 @@ export interface SyncProgress {
   tomados?: number;
   errors?: number;
 }
+
+export type TipoNota = 'prestados' | 'tomados';
+export type TipoDoc = TipoNota | 'eventos';
+export type EventoTipo = 'cancelamento' | 'substituicao' | 'outro';
+export type Situacao = 'ativa' | 'cancelada' | 'substituida';

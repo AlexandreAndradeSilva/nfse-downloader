@@ -1,19 +1,36 @@
-import type { Company, AdnDistribuicaoResponse } from '../types.js';
-import { decodeAndSave, type DateRange } from './xml-saver.js';
+import { mkdirSync, existsSync } from 'fs';
+import { join, relative, sep } from 'path';
+import type { Company, AdnDistribuicaoResponse, TipoDoc, TipoNota } from '../types.js';
+import { decodeAndSave, isWithinRange, type DateRange } from './xml-saver.js';
+import { NsuIndex, type NsuRecord } from './nsu-index.js';
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-// Delay entre chamadas à API ADN para evitar rate limiting (429)
-const DELAY_ENTRE_REQUESTS_MS = 400;
+// Máximo de itens do lote decodificados/gravados em paralelo
+const LOTE_CONCURRENCY = 4;
+const MAX_CONSECUTIVE_ERRORS = 10;
 
 export interface SyncOptions {
   dateRange?: DateRange;
-  gerarPdf: boolean;
+  startNsu?: number;
+  /**
+   * Tipos destacados no progresso e no resumo. Default: ambos.
+   * O feed do ADN entrega prestados e tomados misturados, então TUDO é sempre
+   * gravado — a seleção só decide o que é contado/relatado.
+   */
+  tipos?: TipoNota[];
 }
 
 export interface SyncResult {
   prestados: number;
   tomados: number;
-  pulados: number;
+  eventos: number;
+  /** Documentos gravados, porém fora do `dateRange` pedido. */
+  foraPeriodo: number;
+  /**
+   * NSUs resolvidos pelo índice local, sem tocar a rede. Contabiliza a origem
+   * do documento (disco x rede), não sua relevância: um NSU vindo do índice e
+   * fora do período soma em `cache` E em `foraPeriodo`.
+   */
+  cache: number;
   errors: number;
   lastNsu: number;
 }
@@ -21,77 +38,172 @@ export interface SyncResult {
 type FetchFn = (nsu: number, cnpj: string) => Promise<AdnDistribuicaoResponse>;
 type LogFn = (message: string) => void;
 
+/** Dados mínimos para classificar um documento — vindo do índice ou do disco. */
+type Contavel = Pick<NsuRecord, 'tipo' | 'dhEmi' | 'dhProc'>;
+
 export async function runSync(
   company: Company,
   fetchFn: FetchFn,
   onProgress: LogFn,
-  options: SyncOptions = { gerarPdf: false }
+  options: SyncOptions = {}
 ): Promise<SyncResult> {
-  let currentNsu = company.lastNsu + 1;
+  const tipos = new Set<TipoDoc>(options.tipos ?? ['prestados', 'tomados']);
+  const companyDir = join(company.outputFolder, company.nome);
+  mkdirSync(companyDir, { recursive: true });
+  const index = NsuIndex.load(companyDir);
+
+  let cursor = options.startNsu !== undefined ? options.startNsu : company.lastNsu + 1;
   let prestados = 0;
   let tomados = 0;
-  let pulados = 0;
+  let eventos = 0;
+  let foraPeriodo = 0;
+  let cache = 0;
   let errors = 0;
   let consecutiveErrors = 0;
-  const MAX_CONSECUTIVE_ERRORS = 3;
+  // lastNsu nunca pode ultrapassar o primeiro NSU que falhou: marcá-lo como
+  // processado faria o documento nunca mais ser buscado.
+  let firstErrorNsu: number | null = null;
+
+  const conta = (rec: Contavel, fromCache: boolean): void => {
+    if (fromCache) cache++;
+    if (!isWithinRange(rec, options.dateRange)) {
+      foraPeriodo++;
+      return;
+    }
+    if (rec.tipo === 'eventos') eventos++;
+    else if (tipos.has(rec.tipo)) {
+      if (rec.tipo === 'prestados') prestados++;
+      else tomados++;
+    }
+  };
+
+  /** O registro do índice só vale se o arquivo ainda estiver no disco. */
+  const noDisco = (rec: NsuRecord): boolean => existsSync(join(companyDir, rec.arquivo));
 
   while (true) {
-    await sleep(DELAY_ENTRE_REQUESTS_MS);
+    // 1) Resolve pelo índice, sem rede — o ganho da re-busca por período.
+    let cacheRun = 0;
+    for (let rec = index.get(cursor); rec && noDisco(rec); rec = index.get(cursor)) {
+      conta(rec, true);
+      cursor++;
+      cacheRun++;
+    }
+    if (cacheRun > 0) {
+      onProgress(`NSU ${cursor - cacheRun}–${cursor - 1} → já baixados (índice), sem rede`);
+    }
 
+    // 2) Gap → rede.
     let response: AdnDistribuicaoResponse;
     try {
-      response = await fetchFn(currentNsu, company.cnpj);
+      response = await fetchFn(cursor, company.cnpj);
       consecutiveErrors = 0;
     } catch (err) {
       errors++;
       consecutiveErrors++;
-      onProgress(`[ERRO] NSU ${currentNsu}: ${(err as Error).message}`);
+      firstErrorNsu ??= cursor;
+      onProgress(`[ERRO] NSU ${cursor}: ${(err as Error).message}`);
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         onProgress(`[FATAL] ${MAX_CONSECUTIVE_ERRORS} erros consecutivos — sync abortado.`);
         break;
       }
-      currentNsu++;
+      cursor++;
       continue;
     }
 
-    if (response.StatusProcessamento === 'NENHUM_DOCUMENTO_LOCALIZADO') break;
-
-    if (response.StatusProcessamento === 'REJEICAO') {
-      const msg = response.Erros?.map(e => e.Descricao).join(', ') ?? 'Rejeição sem detalhes';
-      onProgress(`[REJEIÇÃO] NSU ${currentNsu}: ${msg}`);
+    if (response.StatusProcessamento === 'NENHUM_DOCUMENTO_LOCALIZADO') {
+      // NENHUM num gap abaixo do máximo indexado = NSUs antigos já expirados no
+      // servidor. Salta para o próximo NSU conhecido (sempre > cursor, senão o
+      // loop repetiria eternamente o mesmo fetch) e volta a resolver do índice.
+      const next = index.nextKnownNsu(cursor + 1);
+      if (next !== undefined) {
+        cursor = next;
+        continue;
+      }
       break;
     }
 
-    const lote = response.LoteDFe ?? [];
-    for (const item of lote) {
-      const nsu = item.NSU;
-      try {
-        const saved = await decodeAndSave(
-          item.ArquivoXml,
-          nsu,
-          company.cnpj,
-          company.outputFolder,
-          company.nome,
-          options.dateRange,
-          options.gerarPdf
-        );
-        if (saved === null) {
-          pulados++;
-          onProgress(`NSU ${nsu} → fora do período, pulado`);
+    if (response.StatusProcessamento === 'REJEICAO') {
+      const msg = response.Erros?.map(e => e.Descricao).join(', ') ?? 'Rejeição sem detalhes';
+      onProgress(`[REJEIÇÃO] NSU ${cursor}: ${msg}`);
+      break;
+    }
+
+    // 3) Grava o lote — itens em batches paralelos.
+    // O ADN entrega o lote inteiro numa única resposta, então os NSUs já
+    // indexados chegam junto com os novos. Resolvê-los pelo índice evita
+    // descompactar, reparsear e regravar em disco o que já está lá.
+    const cursorAntes = cursor;
+    const todosItens = response.LoteDFe ?? [];
+    let doCache = 0;
+    const itens = todosItens.filter(item => {
+      // NSU abaixo do cursor já foi contabilizado pelo laço de índice acima —
+      // o servidor pode reenviá-lo no lote, mas contá-lo de novo duplicaria.
+      if (item.NSU < cursorAntes) return false;
+      const conhecido = index.get(item.NSU);
+      if (!conhecido || !existsSync(join(companyDir, conhecido.arquivo))) return true;
+      conta(conhecido, true);
+      doCache++;
+      if (item.NSU >= cursor) cursor = item.NSU + 1;
+      return false;
+    });
+    if (doCache > 0) onProgress(`${doCache} documento(s) já baixado(s) — resolvidos pelo índice`);
+
+    for (let i = 0; i < itens.length; i += LOTE_CONCURRENCY) {
+      const batch = itens.slice(i, i + LOTE_CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(item =>
+          decodeAndSave(
+            item.ArquivoXml,
+            item.NSU,
+            company.cnpj,
+            company.outputFolder,
+            company.nome,
+            index,
+            options.dateRange
+          )
+        )
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const nsu = batch[j].NSU;
+        const result = results[j];
+        if (result.status === 'rejected') {
+          errors++;
+          firstErrorNsu ??= nsu;
+          onProgress(`[ERRO] NSU ${nsu}: ${(result.reason as Error).message}`);
         } else {
-          if (saved.tipo === 'prestados') prestados++;
-          else tomados++;
-          const pdfNote = options.gerarPdf ? ' + PDF' : '';
-          onProgress(`NSU ${nsu} → ${saved.tipo} (${saved.competencia}) salvo${pdfNote}`);
+          const saved = result.value;
+          // Só entra no índice o que existe em disco: um documento fora do
+          // período não foi gravado e precisa ser rebaixado se o filtro mudar.
+          if (saved.salvo) {
+            index.set(nsu, {
+              chave: saved.chaveAcesso,
+              tipo: saved.tipo,
+              dhEmi: saved.dhEmi,
+              dhProc: saved.dhProc,
+              // Índice guarda caminho relativo com "/" — mesma convenção do xml-saver
+              arquivo: relative(companyDir, saved.filePath).split(sep).join('/'),
+              eventoTipo: saved.eventoTipo,
+            });
+          }
+          conta(saved, false);
+          const rotulo = saved.eventoTipo === 'cancelamento' ? 'cancelamento'
+            : saved.eventoTipo === 'substituicao' ? 'substituição'
+              : saved.eventoTipo === 'outro' ? 'evento'
+                : saved.tipo;
+          onProgress(saved.salvo
+            ? `NSU ${nsu} → ${rotulo} (${saved.competencia}) salvo`
+            : `NSU ${nsu} → fora do período, ignorado`);
         }
-        if (nsu >= currentNsu) currentNsu = nsu + 1;
-      } catch (err) {
-        errors++;
-        onProgress(`[ERRO] NSU ${nsu}: ${(err as Error).message}`);
-        currentNsu = nsu + 1;
+        if (nsu >= cursor) cursor = nsu + 1;
       }
     }
+    // Lote vazio (ou só com NSUs abaixo do cursor) não pode travar o loop.
+    if (cursor === cursorAntes) cursor++;
   }
 
-  return { prestados, tomados, pulados, errors, lastNsu: currentNsu - 1 };
+  index.save();
+
+  const lastNsu = firstErrorNsu !== null ? Math.min(firstErrorNsu - 1, cursor - 1) : cursor - 1;
+  return { prestados, tomados, eventos, foraPeriodo, cache, errors, lastNsu };
 }

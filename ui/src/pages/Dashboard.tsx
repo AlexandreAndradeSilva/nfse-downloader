@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchStats, fetchNotes } from '../lib/api';
+import { fetchStats, fetchNotes, urlRelatorioExcel } from '../lib/api';
 import type { Company, StatsResult } from '../types';
 import type { NotesPage } from '../lib/api';
 import { IconDownload, IconUpload, IconBarChart, IconFile, IconRefresh,
@@ -43,9 +43,10 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
 
   const downloadExcel = (tipo: 'tomados' | 'prestados') => {
     if (!activeCompany) return;
-    const url = `/api/reports/${activeCompany.cnpj}/excel?tipo=${tipo}`;
+    // URL absoluta: na extensão um caminho relativo aponta para a própria
+    // extensão (chrome-extension://…) e o download falha em silêncio.
     const a = document.createElement('a');
-    a.href = url;
+    a.href = urlRelatorioExcel(activeCompany.cnpj, { tipo, dataInicio: '', dataFim: '', colunas: [] });
     a.download = '';
     a.click();
   };
@@ -337,8 +338,23 @@ export function Dashboard({ companies, activeCnpj, refreshKey, syncing }: Props)
                   <div style={{
                     color: activeTab === 'tomados' ? '#a5b4fc' : '#86efac',
                     fontWeight: 600, fontFamily: 'monospace', fontSize: 13,
+                    display: 'flex', alignItems: 'center', gap: 6, minWidth: 0,
                   }}>
-                    {note.numeroNFSe || '-'}
+                    <span style={{ textDecoration: note.situacao && note.situacao !== 'ativa' ? 'line-through' : undefined }}>
+                      {note.numeroNFSe || '-'}
+                    </span>
+                    {note.situacao === 'cancelada' && (
+                      <span title="Nota cancelada" style={{
+                        fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4,
+                        background:'rgba(239,68,68,.15)', color:'#f87171', flexShrink:0,
+                      }}>CANC</span>
+                    )}
+                    {note.situacao === 'substituida' && (
+                      <span title="Nota substituída" style={{
+                        fontSize:9, fontWeight:700, padding:'2px 5px', borderRadius:4,
+                        background:'rgba(251,191,36,.15)', color:'#fbbf24', flexShrink:0,
+                      }}>SUBST</span>
+                    )}
                   </div>
                   <div style={{ minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>

@@ -3,7 +3,8 @@ import { useState } from 'react';
 export interface SyncOptions {
   dataInicio: string;
   dataFim: string;
-  gerarPdf: boolean;
+  prestados: boolean;
+  tomados: boolean;
 }
 
 interface Props {
@@ -25,13 +26,17 @@ function firstOfMonth(): string {
 export function SyncModal({ open, companyName, onClose, onSync }: Props) {
   const [dataInicio, setDataInicio] = useState(firstOfMonth);
   const [dataFim, setDataFim] = useState(today);
-  const [gerarPdf, setGerarPdf] = useState(true);
+  const [prestados, setPrestados] = useState(true);
+  const [tomados, setTomados] = useState(true);
 
   if (!open) return null;
 
+  const nenhumTipo = !prestados && !tomados;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSync({ dataInicio, dataFim, gerarPdf });
+    if (nenhumTipo) return;
+    onSync({ dataInicio, dataFim, prestados, tomados });
   };
 
   return (
@@ -63,19 +68,36 @@ export function SyncModal({ open, companyName, onClose, onSync }: Props) {
               className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-900 bg-white"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              id="gerarPdf"
-              type="checkbox"
-              checked={gerarPdf}
-              onChange={e => setGerarPdf(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <label htmlFor="gerarPdf" className="text-sm font-medium text-gray-700">
-              Gerar PDF junto com XML
-            </label>
-          </div>
+          <fieldset>
+            <legend className="block text-sm font-medium text-gray-700 mb-1">Tipos de nota</legend>
+            <div className="flex items-center gap-4">
+              <label htmlFor="tipoPrestados" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  id="tipoPrestados"
+                  type="checkbox"
+                  checked={prestados}
+                  onChange={e => setPrestados(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                Prestados
+              </label>
+              <label htmlFor="tipoTomados" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <input
+                  id="tipoTomados"
+                  type="checkbox"
+                  checked={tomados}
+                  onChange={e => setTomados(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                Tomados
+              </label>
+            </div>
+          </fieldset>
+          {nenhumTipo && (
+            <p className="text-xs text-red-600">Selecione ao menos um tipo de nota.</p>
+          )}
           <p className="text-xs text-gray-500">
+            Baixa apenas os XMLs — use "Gerar PDFs" depois para emitir os DANFSe.
             Deixe as datas em branco para baixar todos os documentos disponíveis.
           </p>
           <div className="flex justify-end gap-2 pt-1">
@@ -83,8 +105,8 @@ export function SyncModal({ open, companyName, onClose, onSync }: Props) {
               className="px-4 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50">
               Cancelar
             </button>
-            <button type="submit"
-              className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700">
+            <button type="submit" disabled={nenhumTipo}
+              className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50">
               Sincronizar
             </button>
           </div>

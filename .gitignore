@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+.DS_Store
+
+# Dados locais da instalação (nunca versionar — contém senha do certificado)
+config.json
+*.pfx
+*.pass
+
+# Extração automática do PDF da NT 008 (artefato de trabalho)
+docs/referencias/nt-008-texto.txt
+docs/referencias/nt-008-tabela-campos.txt

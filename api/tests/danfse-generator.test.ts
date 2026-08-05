@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { generateDanfse } from '../src/services/danfse-generator.js';
+import { describe, it, expect, afterAll } from 'vitest';
+import { generateDanfse, extractDanfseData, closeDanfseBrowser } from '../src/services/danfse-generator.js';
+
+afterAll(async () => { await closeDanfseBrowser(); });
 
 const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
 <NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
@@ -66,4 +68,70 @@ describe('danfse-generator', () => {
 </NFSe>`;
     await expect(generateDanfse(minimalXml)).resolves.toBeDefined();
   }, 30000);
+
+  it('duas gerações em paralelo reutilizam o mesmo browser', async () => {
+    const [a, b] = await Promise.all([generateDanfse(sampleXml), generateDanfse(sampleXml)]);
+    expect(a.subarray(0, 4).toString('latin1')).toBe('%PDF');
+    expect(b.subarray(0, 4).toString('latin1')).toBe('%PDF');
+  }, 60000);
+
+  it('aceita carimbo de cancelada e de substituída', async () => {
+    const canc = await generateDanfse(sampleXml, 'CANCELADA');
+    const subst = await generateDanfse(sampleXml, 'SUBSTITUIDA');
+    expect(canc.length).toBeGreaterThan(1000);
+    expect(subst.length).toBeGreaterThan(1000);
+    // O carimbo altera o conteúdo renderizado
+    expect(canc.length).not.toBe(subst.length);
+  }, 60000);
+
+  describe('extractDanfseData', () => {
+    it('preserva os 50 dígitos da chave de acesso (sem perda de precisão)', () => {
+      const d = extractDanfseData(sampleXml);
+      expect(d.chaveAcesso).toBe('31062001219068927000191230000000002523049575199774');
+      expect(d.chaveAcesso).toHaveLength(50);
+    });
+
+    it('formata competência como DD/MM/AAAA conforme a espec', () => {
+      expect(extractDanfseData(sampleXml).competencia).toBe('13/04/2023');
+    });
+
+    it('lê IRRF de vRetIRRF (nome do schema nacional) com fallback para vIRRF', () => {
+      const comRet = sampleXml.replace(
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>',
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><tribFed><vRetIRRF>43.00</vRetIRRF></tribFed>',
+      );
+      expect(extractDanfseData(comRet).vIRRF).toBe('R$ 43,00');
+
+      const legado = sampleXml.replace(
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>',
+        '<tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun><tribFed><vIRRF>21.50</vIRRF></tribFed>',
+      );
+      expect(extractDanfseData(legado).vIRRF).toBe('R$ 21,50');
+    });
+
+    it('resolve o código IBGE do tomador para "Município - UF"', () => {
+      // O XML só traz cMun 3304557; o DANFSe exibe o nome do município
+      expect(extractDanfseData(sampleXml).tomaMunicipio).toBe('Rio de Janeiro - RJ');
+    });
+
+    it('formata o código de tributação nacional como NN.NN.NN', () => {
+      expect(extractDanfseData(sampleXml).cTribNac).toBe('14.02.01');
+    });
+
+    it('restaura zeros à esquerda comidos pelo parser numérico', () => {
+      // O fast-xml-parser converte campos numéricos: 01400000 chega como 1400000
+      const semZeros = sampleXml
+        .replace('<CEP>30820220</CEP>', '<CEP>1400000</CEP>')
+        .replace('<cTribNac>140201</cTribNac>', '<cTribNac>70901</cTribNac>');
+      const d = extractDanfseData(semZeros);
+      expect(d.emitCep).toBe('01400-000');
+      expect(d.cTribNac).toBe('07.09.01');
+    });
+
+    it('exibe valores monetários no formato do DANFSe', () => {
+      const d = extractDanfseData(sampleXml);
+      expect(d.vServico).toBe('R$ 2.866,67');
+      expect(d.vLiq).toBe('R$ 2.866,67');
+    });
+  });
 });
